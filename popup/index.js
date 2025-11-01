@@ -2,6 +2,11 @@
   const STORAGE_SETTINGS = 'settings';
   const STORAGE_PROFILES = 'profiles';
 
+  function getDefaultHotkey() {
+    const platform = navigator.platform.toLowerCase();
+    return platform.includes('mac') ? 'Ctrl+T' : 'Alt+T';
+  }
+
   const $mode = document.getElementById('mode');
   const $profile = document.getElementById('profile');
   const $openOptions = document.getElementById('open-options');
@@ -11,7 +16,7 @@
   chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
     const s = data[STORAGE_SETTINGS] || { mode: 'api' };
     $mode.value = s.mode || 'api';
-    if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || 'Alt+R';
+    if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
   });
 
   chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
@@ -26,7 +31,7 @@
     if (area === 'local' && changes[STORAGE_SETTINGS]) {
       const s = changes[STORAGE_SETTINGS].newValue || { mode: 'api' };
       $mode.value = s.mode || 'api';
-      if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || 'Alt+R';
+      if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
     }
   });
 

@@ -131,16 +131,20 @@ function matchesHotkey(e, combo) {
   // Observe input area and inject button
   initInjection(adapter);
 
-  // Register hotkey from settings (default Alt+R)
-  let refineHotkey = 'Alt+R';
+  // Register hotkey from settings (platform-aware default)
+  function getDefaultHotkey() {
+    const platform = navigator.platform.toLowerCase();
+    return platform.includes('mac') ? 'Ctrl+T' : 'Alt+T';
+  }
+  let refineHotkey = getDefaultHotkey();
   chrome.storage.local.get(['settings'], (data) => {
     const s = data.settings || {};
-    refineHotkey = s.refineHotkey || 'Alt+R';
+    refineHotkey = s.refineHotkey || getDefaultHotkey();
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.settings) {
       const s = changes.settings.newValue || {};
-      refineHotkey = s.refineHotkey || 'Alt+R';
+      refineHotkey = s.refineHotkey || getDefaultHotkey();
     }
   });
   window.addEventListener('keydown', (e) => {

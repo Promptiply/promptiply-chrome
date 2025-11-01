@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>promptiply Settings</title>
+  <link rel="icon" type="image/png" href="../icons/icon-48.png" />
   <style>
     :root { --bg:#0b1220; --panel:#0f172a; --muted:#94a3b8; --text:#e5e7eb; --accent:#7c3aed; --accent-2:#06b6d4; --border:#1e293b; }
     * { box-sizing: border-box; }
@@ -16,13 +17,14 @@
     .tab.active { background: var(--panel); color: var(--text); }
     .panel { background: var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-    .row { display:flex; gap:10px; align-items:center; margin: 10px 0; }
-    .field { display:flex; flex-direction:column; gap:6px; }
+    .row { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
+    .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
     label { font-size:12px; color: var(--muted); }
     input[type=text], input[type=password], select, textarea { padding: 10px; width: 100%; border-radius:10px; background:#0b1220; color:var(--text); border:1px solid var(--border); transition: all .15s ease; }
     input[type=text]:hover, input[type=password]:hover, select:hover, textarea:hover { border-color:#334155; }
     input[type=text]:focus, input[type=password]:focus, select:focus, textarea:focus { outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,58,237,0.25); }
     textarea { min-height: 120px; }
+    .field.disabled, .field.disabled * { opacity:0.5; pointer-events:none; cursor:not-allowed; }
     .actions { display:flex; gap:10px; }
     button { padding:10px 12px; border-radius:10px; background:#0b1220; color:var(--text); border:1px solid var(--border); cursor:pointer; transition: all .15s ease; }
     button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; }
@@ -36,6 +38,12 @@
     .card .meta { display:flex; flex-direction:column; gap:4px; }
     .chip { display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:2px 8px; border-radius:999px; background:#111827; border:1px solid var(--border); color:var(--muted); }
     .empty { text-align:center; padding:24px; color:var(--muted); border:1px dashed var(--border); border-radius:12px; }
+    .hotkey-display { flex:1; padding:10px; border-radius:10px; background:#0b1220; border:1px solid var(--border); font-family:monospace; font-size:13px; color:var(--text); min-height:20px; display:flex; align-items:center; transition: all .15s ease; }
+    .hotkey-display:hover { border-color:#334155; }
+    .hotkey-display.recording { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,58,237,0.25); }
+    .hotkey-row { display:flex; align-items:center; gap:10px; }
+    .hotkey-hint { display:none; margin-top:8px; font-size:12px; color:var(--accent); }
+    .hotkey-hint.show { display:block; }
     .modal { position: fixed; inset: 0; display:none; background: rgba(0,0,0,0.45); z-index: 2147483647; }
     .modal .dialog { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:min(780px,92vw); background: var(--panel); border:1px solid var(--border); border-radius:16px; padding:16px; }
     .steps { display:flex; gap:8px; margin-bottom:10px; }
@@ -47,7 +55,10 @@
 <body>
   <div class="container">
     <div class="header">
-      <div class="title">promptiply — Settings</div>
+      <div class="title" style="display:flex;align-items:center;gap:8px;">
+        <img src="../icons/icon-48.png" alt="promptiply" style="width:32px;height:32px;display:inline-block;" />
+        promptiply — Settings
+      </div>
       <div class="muted">v0.1.0</div>
     </div>
     <div class="tabs">
@@ -58,14 +69,14 @@
 
     <div class="panel" id="tab-general">
       <div class="grid">
-        <div class="field">
+        <div class="field" style="margin-bottom:0;">
           <label>Refinement Mode</label>
           <select id="mode">
             <option value="api">API (OpenAI/Anthropic)</option>
             <option value="webui">WebUI (use provider site)</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" style="margin-bottom:0;">
           <label>Provider</label>
           <select id="provider">
             <option value="openai">OpenAI (ChatGPT)</option>
@@ -73,13 +84,19 @@
           </select>
         </div>
       </div>
-      <div class="row">
-        <div class="field" style="width:100%">
-          <label>Refine Hotkey</label>
-          <input id="refine-hotkey" type="text" placeholder="e.g., Alt+R or Ctrl+Shift+R" />
+      <div class="field" style="width:100%;margin-top:12px;margin-bottom:0;">
+        <label>Refine Hotkey</label>
+        <div class="hotkey-row">
+          <div id="refine-hotkey-display" class="hotkey-display">
+            <span id="refine-hotkey-text">-</span>
+          </div>
+          <button id="refine-hotkey-record" type="button">Change</button>
+        </div>
+        <div id="refine-hotkey-recording" class="hotkey-hint">
+          Press your desired key combination... (Press Escape to cancel)
         </div>
       </div>
-      <div class="actions">
+      <div class="actions" style="margin-top:24px;">
         <button id="save-settings" class="primary">Save Settings</button>
       </div>
     </div>
@@ -88,11 +105,11 @@
       <div class="grid">
         <div>
           <div class="field"><label>OpenAI API Key</label><input id="openai-key" type="password" placeholder="OpenAI API Key" /></div>
-          <div class="field"><label>OpenAI Model</label>
+          <div class="field" style="margin-bottom:0;"><label>OpenAI Model</label>
             <select id="openai-model-select">
               <option value="gpt-5-nano">gpt-5-nano</option>
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-5-mini">gpt-5-mini</option>
+              <option value="gpt-5">gpt-5</option>
               <option value="custom">Custom…</option>
             </select>
             <input id="openai-model-custom" type="text" placeholder="Custom model id" style="display:none;margin-top:8px" />
@@ -100,15 +117,18 @@
         </div>
         <div>
           <div class="field"><label>Anthropic API Key</label><input id="anthropic-key" type="password" placeholder="Anthropic API Key" /></div>
-          <div class="field"><label>Anthropic Model</label>
+          <div class="field" style="margin-bottom:0;"><label>Anthropic Model</label>
             <select id="anthropic-model-select">
-              <option value="claude-4.5-haiku">claude-4.5-haiku</option>
-              <option value="claude-4.5-sonnet">claude-4.5-sonnet</option>
+              <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+              <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
               <option value="custom">Custom…</option>
             </select>
             <input id="anthropic-model-custom" type="text" placeholder="Custom model id" style="display:none;margin-top:8px" />
           </div>
         </div>
+      </div>
+      <div class="actions" style="margin-top:24px;">
+        <button id="save-providers-settings" class="primary">Save Settings</button>
       </div>
     </div>
 

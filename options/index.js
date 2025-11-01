@@ -10,8 +10,14 @@
   const $anthropicModelSelect = document.getElementById('anthropic-model-select');
   const $anthropicModelCustom = document.getElementById('anthropic-model-custom');
   const $provider = document.getElementById('provider');
-  const $refineHotkey = document.getElementById('refine-hotkey');
+  const $refineHotkeyText = document.getElementById('refine-hotkey-text');
+  const $refineHotkeyDisplay = document.getElementById('refine-hotkey-display');
+  const $refineHotkeyRecord = document.getElementById('refine-hotkey-record');
+  const $refineHotkeyRecording = document.getElementById('refine-hotkey-recording');
   const $saveSettings = document.getElementById('save-settings');
+  let isRecordingHotkey = false;
+  let recordedHotkey = null;
+  const $saveProvidersSettings = document.getElementById('save-providers-settings');
 
   const $profilesList = document.getElementById('profiles-list');
   const $newProfile = document.getElementById('new-profile');
@@ -30,11 +36,24 @@
     profiles: document.getElementById('tab-profiles')
   };
 
+  function getDefaultHotkey() {
+    const platform = navigator.platform.toLowerCase();
+    return platform.includes('mac') ? 'Ctrl+T' : 'Alt+T';
+  }
+
   // Tabs behavior
   $tabs.forEach(t => t.addEventListener('click', () => selectTab(t.dataset.tab)));
   function selectTab(name){
     $tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     Object.entries($tabPanels).forEach(([k, el]) => { if (el) el.style.display = (k === name) ? '' : 'none'; });
+  }
+
+  function updateProviderDisabled() {
+    const isWebUI = $mode.value === 'webui';
+    const $providerField = $provider.closest('.field');
+    if ($providerField) {
+      $providerField.classList.toggle('disabled', isWebUI);
+    }
   }
 
   // Load settings
@@ -45,8 +64,10 @@
     $openaiKey.value = s.openaiKey || '';
     setModelSelect($openaiModelSelect, $openaiModelCustom, s.openaiModel || 'gpt-5-nano');
     $anthropicKey.value = s.anthropicKey || '';
-    setModelSelect($anthropicModelSelect, $anthropicModelCustom, s.anthropicModel || 'claude-4.5-sonnet');
-    $refineHotkey.value = s.refineHotkey || 'Alt+R';
+    setModelSelect($anthropicModelSelect, $anthropicModelCustom, s.anthropicModel || 'claude-haiku-4-5');
+    recordedHotkey = s.refineHotkey || getDefaultHotkey();
+    updateHotkeyDisplay();
+    updateProviderDisabled();
   });
 
   // Load profiles
@@ -55,7 +76,7 @@
     renderProfiles(p);
   });
 
-  $saveSettings.addEventListener('click', () => {
+  function saveSettings() {
     const s = {
       mode: $mode.value,
       provider: $provider.value,
@@ -63,9 +84,25 @@
       openaiModel: getModelValue($openaiModelSelect, $openaiModelCustom),
       anthropicKey: $anthropicKey.value.trim() || undefined,
       anthropicModel: getModelValue($anthropicModelSelect, $anthropicModelCustom),
-      refineHotkey: normalizeHotkey($refineHotkey.value)
+      refineHotkey: normalizeHotkey(recordedHotkey || getDefaultHotkey())
     };
     chrome.storage.local.set({ [STORAGE_SETTINGS]: s });
+    if (recordedHotkey) {
+      recordedHotkey = s.refineHotkey;
+      updateHotkeyDisplay();
+    }
+  }
+
+  $saveSettings.addEventListener('click', saveSettings);
+  $saveProvidersSettings.addEventListener('click', saveSettings);
+
+  $mode.addEventListener('change', () => {
+    updateProviderDisabled();
+    chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
+      const cur = data[STORAGE_SETTINGS] || {};
+      cur.mode = $mode.value;
+      chrome.storage.local.set({ [STORAGE_SETTINGS]: cur });
+    });
   });
 
   // Model select helpers
@@ -110,9 +147,14 @@
     }
   });
 
+  function getDefaultHotkey() {
+    const platform = navigator.platform.toLowerCase();
+    return platform.includes('mac') ? 'Ctrl+T' : 'Alt+T';
+  }
+
   function normalizeHotkey(v) {
     const t = (v || '').trim();
-    if (!t) return 'Alt+R';
+    if (!t) return getDefaultHotkey();
     // Normalize casing and order of modifiers
     const parts = t.split('+').map(x => x.trim()).filter(Boolean);
     const keyPart = parts.pop();
@@ -127,6 +169,116 @@
   }
 
   function capitalize(s) { return (s || '').charAt(0).toUpperCase() + (s || '').slice(1); }
+
+  function updateHotkeyDisplay() {
+    if ($refineHotkeyText) {
+      $refineHotkeyText.textContent = recordedHotkey || getDefaultHotkey();
+    }
+  }
+
+  function formatKeyEvent(e) {
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey) parts.push('Meta');
+    
+    let key = e.key;
+    if (!key || key === 'Unidentified') {
+      key = e.code?.replace(/^(Key|Digit)/, '') || 'Unknown';
+    }
+    
+    // Normalize special keys
+    const keyMap = {
+      ' ': 'Space',
+      'ArrowUp': 'ArrowUp',
+      'ArrowDown': 'ArrowDown',
+      'ArrowLeft': 'ArrowLeft',
+      'ArrowRight': 'ArrowRight',
+      'Enter': 'Enter',
+      'Escape': 'Escape',
+      'Tab': 'Tab',
+      'Backspace': 'Backspace',
+      'Delete': 'Delete',
+      'Home': 'Home',
+      'End': 'End',
+      'PageUp': 'PageUp',
+      'PageDown': 'PageDown'
+    };
+    
+    if (keyMap[key]) {
+      key = keyMap[key];
+    } else if (key.length === 1) {
+      key = key.toUpperCase();
+    } else {
+      key = key.replace(/^Key|^Digit/, '').replace(/([A-Z])/g, ' $1').trim();
+    }
+    
+    parts.push(key);
+    return parts.join('+');
+  }
+
+  function startRecordingHotkey() {
+    if (isRecordingHotkey) return;
+    isRecordingHotkey = true;
+    $refineHotkeyRecord.textContent = 'Stop';
+    $refineHotkeyRecord.classList.add('primary');
+    $refineHotkeyRecording.classList.add('show');
+    $refineHotkeyText.textContent = '...';
+    $refineHotkeyDisplay.classList.add('recording');
+
+    const keyDownHandler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Ignore modifier keys alone
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+        return;
+      }
+      
+      const combo = formatKeyEvent(e);
+      recordedHotkey = normalizeHotkey(combo);
+      updateHotkeyDisplay();
+      stopRecordingHotkey();
+    };
+
+    const keyUpHandler = (e) => {
+      // Stop recording on Escape
+      if (e.key === 'Escape') {
+        stopRecordingHotkey();
+      }
+    };
+
+    window.addEventListener('keydown', keyDownHandler, true);
+    window.addEventListener('keyup', keyUpHandler, true);
+    
+    // Store handlers for cleanup
+    window._hotkeyRecorder = { keyDownHandler, keyUpHandler };
+  }
+
+  function stopRecordingHotkey() {
+    if (!isRecordingHotkey) return;
+    isRecordingHotkey = false;
+    $refineHotkeyRecord.textContent = 'Change';
+    $refineHotkeyRecord.classList.remove('primary');
+    $refineHotkeyRecording.classList.remove('show');
+    $refineHotkeyDisplay.classList.remove('recording');
+    updateHotkeyDisplay();
+
+    if (window._hotkeyRecorder) {
+      window.removeEventListener('keydown', window._hotkeyRecorder.keyDownHandler, true);
+      window.removeEventListener('keyup', window._hotkeyRecorder.keyUpHandler, true);
+      delete window._hotkeyRecorder;
+    }
+  }
+
+  $refineHotkeyRecord.addEventListener('click', () => {
+    if (isRecordingHotkey) {
+      stopRecordingHotkey();
+    } else {
+      startRecordingHotkey();
+    }
+  });
 
   // Wizard handlers
   $newProfile?.addEventListener('click', () => openWizard());

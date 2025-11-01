@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>promptiply</title>
+  <link rel="icon" type="image/png" href="../icons/icon-48.png" />
   <style>
     :root { --bg:#0b1220; --panel:#0f172a; --muted:#94a3b8; --text:#e5e7eb; --accent:#7c3aed; --accent-2:#06b6d4; --border:#1e293b; }
     * { box-sizing: border-box; }
@@ -32,7 +33,10 @@
 <body>
   <div class="container">
     <div class="header">
-      <div class="title">promptiply <span class="badge">beta</span></div>
+      <div class="title">
+        <img src="../icons/icon-16.png" alt="promptiply" style="width:16px;height:16px;display:inline-block;vertical-align:middle;" />
+        promptiply <span class="badge">beta</span>
+      </div>
       <button id="open-options" class="primary">Settings</button>
     </div>
     <div class="panel">
@@ -50,7 +54,7 @@
         </div>
       </div>
       <div class="hots">
-        <div class="muted">Press <span id="hotkey-label">Alt+R</span> to refine</div>
+        <div class="muted">Press <span id="hotkey-label">Alt+T</span> to refine</div>
         <button id="refine-now" class="primary">Refine Now</button>
       </div>
     </div>
