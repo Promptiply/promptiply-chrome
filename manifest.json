@@ -49,7 +49,18 @@
   },
   "options_page": "options/index.html",
   "commands": {
-    "refine": { "suggested_key": { "default": "Alt+T", "mac": "MacCtrl+T" }, "description": "Refine current prompt" },
-    "switch-profile": { "suggested_key": { "default": "Alt+Shift+P" }, "description": "Switch profile" }
+    "refine": {
+      "suggested_key": {
+        "default": "Alt+T",
+        "mac": "MacCtrl+T"
+      },
+      "description": "Refine current prompt"
+    },
+    "switch-profile": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "Switch profile"
+    }
   }
 }
