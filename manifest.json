@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "promptiply",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "promptiply refines prompts inline on ChatGPT and Claude using profiles and API/WebUI/Local modes.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -42,8 +42,19 @@
   },
   "options_page": "options/index.html",
   "commands": {
-    "refine": { "suggested_key": { "default": "Alt+T", "mac": "MacCtrl+T" }, "description": "Refine current prompt" },
-    "switch-profile": { "suggested_key": { "default": "Alt+Shift+P" }, "description": "Switch profile" }
+    "refine": {
+      "suggested_key": {
+        "default": "Alt+T",
+        "mac": "MacCtrl+T"
+      },
+      "description": "Refine current prompt"
+    },
+    "switch-profile": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "Switch profile"
+    }
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; default-src 'self' data: blob:; connect-src 'self' data: blob: http://localhost:8000 https://huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://cdn-lfs-us-1.hf.co https://cdn-lfs-us-2.hf.co https://cdn-lfs-us-3.hf.co https://cdn-lfs-eu.hf.co https://cdn-lfs.asia.hf.co https://cdn-lfs.hf.co https://cas-bridge.xethub.hf.co https://xethub.hf.co https://raw.githubusercontent.com"
@@ -72,8 +83,12 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["offscreen/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "offscreen/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
