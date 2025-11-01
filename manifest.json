@@ -57,7 +57,7 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; default-src 'self' data: blob:; connect-src 'self' data: blob: http://localhost:8000 https://huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://cdn-lfs-us-1.hf.co https://cdn-lfs-us-2.hf.co https://cdn-lfs-us-3.hf.co https://cdn-lfs-eu.hf.co https://cdn-lfs.asia.hf.co https://cdn-lfs.hf.co https://cas-bridge.xethub.hf.co https://xethub.hf.co https://raw.githubusercontent.com"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; default-src 'self' data: blob:; connect-src 'self' data: blob: http://localhost:8000 https://api.openai.com https://api.anthropic.com https://huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://cdn-lfs-us-1.hf.co https://cdn-lfs-us-2.hf.co https://cdn-lfs-us-3.hf.co https://cdn-lfs-eu.hf.co https://cdn-lfs.asia.hf.co https://cdn-lfs.hf.co https://cas-bridge.xethub.hf.co https://xethub.hf.co https://raw.githubusercontent.com"
   },
   "host_permissions": [
     "https://chat.openai.com/*",
