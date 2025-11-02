@@ -35,6 +35,7 @@
     providers: document.getElementById('tab-providers'),
     profiles: document.getElementById('tab-profiles')
   };
+  const $version = document.getElementById('version');
 
   function getDefaultHotkey() {
     const platform = navigator.platform.toLowerCase();
@@ -84,6 +85,14 @@
     const p = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
     renderProfiles(p);
   });
+
+  // Set version from manifest
+  if ($version && chrome.runtime?.getManifest) {
+    const manifest = chrome.runtime.getManifest();
+    if (manifest?.version) {
+      $version.textContent = `v${manifest.version}`;
+    }
+  }
 
   function saveSettings() {
     const s = {
