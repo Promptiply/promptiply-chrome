@@ -41,6 +41,12 @@
   const $version = document.getElementById('version');
   const $runOnboardOptions = document.getElementById('run-onboard-options');
   const $wizardProgress = document.getElementById('wizard-progress');
+  const $analyticsOptin = document.getElementById('analytics-optin');
+  const $analyticsView = document.getElementById('analytics-view');
+  const $analyticsExport = document.getElementById('analytics-export');
+  const $analyticsClear = document.getElementById('analytics-clear');
+  const $analyticsList = document.getElementById('analytics-list');
+  const $analyticsCount = document.getElementById('analytics-count');
 
   function getDefaultHotkey() {
     const platform = navigator.platform.toLowerCase();
@@ -83,6 +89,8 @@
     recordedHotkey = s.refineHotkey || getDefaultHotkey();
     updateHotkeyDisplay();
     updateProviderDisabled();
+    // Analytics opt-in default
+    try { $analyticsOptin.checked = !!s.analyticsOptIn; } catch (_) {}
   });
 
   // If opened with ?onboard=1, start onboarding after init
@@ -95,6 +103,75 @@
 
   // Wire Run Onboarding button in options
   $runOnboardOptions?.addEventListener('click', () => startOnboarding());
+
+  // Analytics helpers: append event and purge older than retentionDays
+  const ANALYTICS_RETENTION_DAYS = 90;
+  function appendAnalyticsEvent(ev) {
+    try {
+      chrome.storage.local.get(['analyticsEvents'], (d) => {
+        const list = d.analyticsEvents || [];
+        list.push(ev);
+        // Purge older events
+        const cutoff = Date.now() - ANALYTICS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+        const pruned = list.filter(x => !x.ts || x.ts >= cutoff);
+        chrome.storage.local.set({ analyticsEvents: pruned }, () => {
+          updateAnalyticsCount();
+        });
+      });
+    } catch (_) {}
+  }
+
+  function purgeAnalytics() {
+    chrome.storage.local.set({ analyticsEvents: [] }, () => updateAnalyticsCount());
+  }
+
+  function updateAnalyticsCount() {
+    chrome.storage.local.get(['analyticsEvents'], (d) => {
+      const list = d.analyticsEvents || [];
+      if ($analyticsCount) $analyticsCount.textContent = `${list.length} events`;
+    });
+  }
+
+  // Wire debug buttons
+  $analyticsView?.addEventListener('click', () => {
+    chrome.storage.local.get(['analyticsEvents'], (d) => {
+      const list = d.analyticsEvents || [];
+      $analyticsList.style.display = 'block';
+      $analyticsList.textContent = JSON.stringify(list, null, 2);
+      updateAnalyticsCount();
+    });
+  });
+  $analyticsExport?.addEventListener('click', () => {
+    chrome.storage.local.get(['analyticsEvents'], (d) => {
+      const list = d.analyticsEvents || [];
+      const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'promptiply-analytics.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+  });
+  $analyticsClear?.addEventListener('click', () => {
+    if (!confirm('Clear local analytics events?')) return;
+    purgeAnalytics();
+    $analyticsList.textContent = '';
+    $analyticsList.style.display = 'none';
+  });
+
+  // Update initial count
+  updateAnalyticsCount();
+
+  // Purge old analytics events on load according to retention policy
+  try {
+    chrome.storage.local.get(['analyticsEvents'], (d) => {
+      const list = d.analyticsEvents || [];
+      const cutoff = Date.now() - ANALYTICS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      const pruned = list.filter(x => !x.ts || x.ts >= cutoff);
+      if (pruned.length !== list.length) {
+        chrome.storage.local.set({ analyticsEvents: pruned }, () => updateAnalyticsCount());
+      }
+    });
+  } catch (_) {}
 
   // Load profiles
   chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
@@ -129,6 +206,15 @@
 
   $saveSettings.addEventListener('click', saveSettings);
   $saveProvidersSettings.addEventListener('click', saveSettings);
+
+  // Persist analytics opt-in when toggled
+  $analyticsOptin?.addEventListener('change', () => {
+    chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
+      const cur = data[STORAGE_SETTINGS] || {};
+      cur.analyticsOptIn = !!$analyticsOptin.checked;
+      chrome.storage.local.set({ [STORAGE_SETTINGS]: cur });
+    });
+  });
 
   $mode.addEventListener('change', () => {
     updateProviderDisabled();
@@ -326,6 +412,24 @@
         const obProvider = document.getElementById('ob-provider').value;
         const obOpenAIKey = (document.getElementById('ob-openai-key').value || '').trim();
         const obAnthropicKey = (document.getElementById('ob-anthropic-key').value || '').trim();
+        // If user picked API mode but left the selected provider API key empty, warn and allow them to confirm
+        if (obMode === 'api') {
+          if (obProvider === 'openai' && !obOpenAIKey) {
+            const ok = confirm('You selected API mode with OpenAI but did not provide an OpenAI API key. Without a key the API mode will not work. Continue anyway?');
+            if (!ok) {
+              // mark field as suggested invalid
+              try { document.getElementById('field-ob-openai')?.classList.add('invalid'); document.getElementById('ob-openai-hint').textContent = 'OpenAI API key required to use API mode with OpenAI — or switch to WebUI/local.'; } catch(_) {}
+              return;
+            }
+          }
+          if (obProvider === 'anthropic' && !obAnthropicKey) {
+            const ok = confirm('You selected API mode with Anthropic but did not provide an Anthropic API key. Without a key the API mode will not work. Continue anyway?');
+            if (!ok) {
+              try { document.getElementById('field-ob-anthropic')?.classList.add('invalid'); document.getElementById('ob-anthropic-hint').textContent = 'Anthropic API key required to use API mode with Anthropic — or switch to WebUI/local.'; } catch(_) {}
+              return;
+            }
+          }
+        }
 
         // Apply these to the real controls so saveSettings() will pick them up
         $mode.value = obMode;
@@ -406,6 +510,14 @@
             } catch (_) {}
             // Remove onboarding draft
             chrome.storage.local.remove(['onboardingDraft']);
+            // If analytics opted-in, record a local onboarding_complete event (uses appendAnalyticsEvent which purges old events)
+            chrome.storage.local.get([STORAGE_SETTINGS], (d) => {
+              const s = d[STORAGE_SETTINGS] || {};
+              if (s.analyticsOptIn) {
+                const ev = { event: 'onboarding_complete', ts: Date.now(), mode: s.mode, provider: s.provider };
+                try { appendAnalyticsEvent(ev); } catch (_) {}
+              }
+            });
           });
         }
       });
@@ -515,31 +627,34 @@
     if (isOnboarding) {
       if (wizardState.step === 1) {
         $wizardBody.innerHTML = `
-          <div class="field">
-            <label>Choose mode</label>
-            <select id="ob-mode">
-              <option value="api">API (OpenAI/Anthropic)</option>
-              <option value="webui">WebUI (use provider site)</option>
-              <option value="local">Local (off-device)</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Provider (for API/WebUI)</label>
-            <select id="ob-provider">
-              <option value="openai">OpenAI (ChatGPT)</option>
-              <option value="anthropic">Anthropic (Claude)</option>
-            </select>
-          </div>
-          <div class="field"><label>OpenAI API Key (optional)</label><input id="ob-openai-key" type="password" placeholder="sk-..."/></div>
-          <div class="field"><label>Anthropic API Key (optional)</label><input id="ob-anthropic-key" type="password" placeholder="anthropic-..."/></div>
-          <div class="muted">This onboarding helps you pick a mode and optionally configure API keys. You can change these later in Settings.</div>
-        `;
+            <div class="field">
+              <label>Choose mode</label>
+              <select id="ob-mode">
+                <option value="api">API (OpenAI/Anthropic)</option>
+                <option value="webui">WebUI (use provider site)</option>
+                <option value="local">Local (off-device)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Provider (for API/WebUI)</label>
+              <select id="ob-provider">
+                <option value="openai">OpenAI (ChatGPT)</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+              </select>
+            </div>
+            <div class="field" id="field-ob-openai"><label>OpenAI API Key</label><input id="ob-openai-key" type="password" placeholder="sk-..."/><div class="hint" id="ob-openai-hint">Optional for now — required to use OpenAI via API.</div></div>
+            <div class="field" id="field-ob-anthropic"><label>Anthropic API Key</label><input id="ob-anthropic-key" type="password" placeholder="anthropic-..."/><div class="hint" id="ob-anthropic-hint">Optional for now — required to use Anthropic via API.</div></div>
+            <div class="muted">This onboarding helps you pick a mode and optionally configure API keys. You can change these later in Settings.</div>
+          `;
         // Prefill with existing values
         try {
           document.getElementById('ob-mode').value = $mode.value || 'api';
           document.getElementById('ob-provider').value = $provider.value || 'openai';
           document.getElementById('ob-openai-key').value = $openaiKey.value || '';
           document.getElementById('ob-anthropic-key').value = $anthropicKey.value || '';
+          // Clear any previous validation state
+          try { document.getElementById('field-ob-openai')?.classList.remove('invalid'); document.getElementById('ob-openai-hint').textContent = 'Optional for now — required to use OpenAI via API.'; } catch(_) {}
+          try { document.getElementById('field-ob-anthropic')?.classList.remove('invalid'); document.getElementById('ob-anthropic-hint').textContent = 'Optional for now — required to use Anthropic via API.'; } catch(_) {}
           // Wire up draft saves
           ['ob-mode','ob-provider','ob-openai-key','ob-anthropic-key'].forEach(id => {
             const el = document.getElementById(id);
@@ -548,6 +663,9 @@
               saveOnboardingDraft();
             });
           });
+          // clear hints on input
+          document.getElementById('ob-openai-key')?.addEventListener('input', () => { document.getElementById('field-ob-openai')?.classList.remove('invalid'); document.getElementById('ob-openai-hint').textContent = 'Optional for now — required to use OpenAI via API.'; });
+          document.getElementById('ob-anthropic-key')?.addEventListener('input', () => { document.getElementById('field-ob-anthropic')?.classList.remove('invalid'); document.getElementById('ob-anthropic-hint').textContent = 'Optional for now — required to use Anthropic via API.'; });
         } catch (_) {}
         return;
       } else if (wizardState.step === 2) {
@@ -557,6 +675,13 @@
             <div class="field"><label>Tone</label><input id="w-tone" type="text" placeholder="e.g., concise, friendly" value="${escapeHtml(wizardState.tone)}"/></div>
           </div>
           <div class="field"><label>Persona</label><input id="w-persona" type="text" placeholder="e.g., Senior AI Engineer" value="${escapeHtml(wizardState.persona)}"/></div>
+          <div class="field"><div class="hint">Name is optional but recommended — here are example profiles you can click to use.</div>
+            <div class="example-chips">
+              <div class="example-chip" data-name="Technical Tutor" data-persona="Senior AI Engineer" data-tone="concise">Technical Tutor</div>
+              <div class="example-chip" data-name="Code Reviewer" data-persona="Senior Developer" data-tone="detailed">Code Reviewer</div>
+              <div class="example-chip" data-name="Product Copywriter" data-persona="Marketing Lead" data-tone="friendly">Copywriter</div>
+            </div>
+          </div>
         `;
         // Wire up draft saves for profile fields
         try {
@@ -566,6 +691,19 @@
               wizardState.name = (document.getElementById('w-name')?.value || '').trim();
               wizardState.tone = (document.getElementById('w-tone')?.value || '').trim();
               wizardState.persona = (document.getElementById('w-persona')?.value || '').trim();
+              saveOnboardingDraft();
+            });
+          });
+          // Wire example chips
+          Array.from(document.querySelectorAll('.example-chip')).forEach(ch => {
+            ch.addEventListener('click', () => {
+              const n = ch.dataset.name || '';
+              const p = ch.dataset.persona || '';
+              const t = ch.dataset.tone || '';
+              document.getElementById('w-name').value = n;
+              document.getElementById('w-persona').value = p;
+              document.getElementById('w-tone').value = t;
+              wizardState.name = n; wizardState.persona = p; wizardState.tone = t;
               saveOnboardingDraft();
             });
           });

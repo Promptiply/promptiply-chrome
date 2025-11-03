@@ -43,6 +43,23 @@
             <option value="anthropic">Anthropic (Claude)</option>
           </select>
         </div>
+        <div class="field field-no-margin" style="grid-column:1 / -1;">
+          <label>Analytics</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="analytics-optin" type="checkbox" />
+            <div class="muted">Help improve promptiply by sending anonymous local events (stored locally). No external network by default.</div>
+          </div>
+        </div>
+      </div>
+      <div class="field field-top-margin" id="analytics-debug">
+        <label>Analytics (debug)</label>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <button id="analytics-view" type="button">View Events</button>
+          <button id="analytics-export" type="button">Export JSON</button>
+          <button id="analytics-clear" type="button">Clear Events</button>
+          <div class="muted" id="analytics-count">0 events</div>
+        </div>
+        <pre id="analytics-list" style="display:none; max-height:220px; overflow:auto; background:#071022; padding:8px; border-radius:8px; border:1px solid var(--border);"></pre>
       </div>
       <div class="field field-full field-top-margin">
         <label>Refine Hotkey</label>
