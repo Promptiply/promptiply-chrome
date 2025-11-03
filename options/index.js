@@ -29,6 +29,9 @@
   const $wizardSave = document.getElementById('wizard-save');
   const $wizardSteps = Array.from(document.querySelectorAll('.step'));
   let wizardState = { step: 1, editingId: null, name: '', persona: '', tone: '', guidelines: [] };
+  // Onboarding state
+  let isOnboarding = false;
+  let onboardingSettingsSaved = false;
   const $tabs = Array.from(document.querySelectorAll('.tab'));
   const $tabPanels = {
     general: document.getElementById('tab-general'),
@@ -79,6 +82,14 @@
     updateHotkeyDisplay();
     updateProviderDisabled();
   });
+
+  // If opened with ?onboard=1, start onboarding after init
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('onboard')) {
+      setTimeout(() => startOnboarding(), 200);
+    }
+  } catch (_) {}
 
   // Load profiles
   chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
@@ -303,6 +314,30 @@
   $wizardCancel?.addEventListener('click', closeWizard);
   $wizardBack?.addEventListener('click', () => setWizardStep(wizardState.step - 1));
   $wizardNext?.addEventListener('click', () => {
+    // Special handling for onboarding step 1: save selected mode & API keys into settings
+    if (isOnboarding && wizardState.step === 1) {
+      try {
+        const obMode = document.getElementById('ob-mode').value;
+        const obProvider = document.getElementById('ob-provider').value;
+        const obOpenAIKey = (document.getElementById('ob-openai-key').value || '').trim();
+        const obAnthropicKey = (document.getElementById('ob-anthropic-key').value || '').trim();
+
+        // Apply these to the real controls so saveSettings() will pick them up
+        $mode.value = obMode;
+        $provider.value = obProvider;
+        $openaiKey.value = obOpenAIKey;
+        $anthropicKey.value = obAnthropicKey;
+
+        // Persist settings now
+        saveSettings();
+        onboardingSettingsSaved = true;
+      } catch (e) {
+        console.error('[promptiply:options] onboarding next error:', e);
+      }
+      setWizardStep(wizardState.step + 1);
+      return;
+    }
+
     if (wizardState.step === 1) {
       const name = (document.getElementById('w-name').value || '').trim();
       if (!name) return;
@@ -325,11 +360,34 @@
         }
       } else {
         const id = `p_${Date.now()}`;
-        const prof = { id, name: wizardState.name, persona: wizardState.persona, tone: wizardState.tone, styleGuidelines: wizardState.guidelines, constraints: [], examples: [], domainTags: [] };
+        const prof = { id, name: wizardState.name || `Profile ${cur.list.length+1}`, persona: wizardState.persona, tone: wizardState.tone, styleGuidelines: wizardState.guidelines, constraints: [], examples: [], domainTags: [] };
         cur.list.push(prof);
         if (!cur.activeProfileId) cur.activeProfileId = id;
       }
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => { renderProfiles(cur); closeWizard(); });
+      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+        renderProfiles(cur);
+        closeWizard();
+
+        // If onboarding, mark as completed and ensure settings were saved
+        if (isOnboarding) {
+          // Ensure settings persisted
+          if (!onboardingSettingsSaved) {
+            saveSettings();
+          }
+          // Mark onboarded flag so we don't auto-open again
+          chrome.storage.local.set({ onboarded: true }, () => {
+            console.log('[promptiply:options] Onboarding complete');
+            isOnboarding = false;
+            onboardingSettingsSaved = false;
+            // Remove ?onboard=1 from URL (nice-to-have)
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('onboard');
+              history.replaceState({}, '', url.toString());
+            } catch (_) {}
+          });
+        }
+      });
     });
   });
 
@@ -388,6 +446,14 @@
     $modal.classList.add('modal-show');
     setWizardStep(1);
   }
+  function startOnboarding() {
+    // Reuse wizard modal for onboarding
+    wizardState = { step: 1, editingId: null, name: '', persona: '', tone: '', guidelines: [] };
+    isOnboarding = true;
+    onboardingSettingsSaved = false;
+    $modal.classList.add('modal-show');
+    setWizardStep(1);
+  }
   function closeWizard() {
     $modal.classList.remove('modal-show');
   }
@@ -397,6 +463,68 @@
     $wizardBack.classList.toggle('tab-panel-hidden', wizardState.step === 1);
     $wizardNext.classList.toggle('tab-panel-hidden', wizardState.step === 3);
     $wizardSave.classList.toggle('wizard-save-hidden', wizardState.step !== 3);
+    // If onboarding, present different step contents: step1 = modes + optional keys, step2 = profile basics, step3 = review
+    if (isOnboarding) {
+      if (wizardState.step === 1) {
+        $wizardBody.innerHTML = `
+          <div class="field">
+            <label>Choose mode</label>
+            <select id="ob-mode">
+              <option value="api">API (OpenAI/Anthropic)</option>
+              <option value="webui">WebUI (use provider site)</option>
+              <option value="local">Local (off-device)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Provider (for API/WebUI)</label>
+            <select id="ob-provider">
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+          <div class="field"><label>OpenAI API Key (optional)</label><input id="ob-openai-key" type="password" placeholder="sk-..."/></div>
+          <div class="field"><label>Anthropic API Key (optional)</label><input id="ob-anthropic-key" type="password" placeholder="anthropic-..."/></div>
+          <div class="muted">This onboarding helps you pick a mode and optionally configure API keys. You can change these later in Settings.</div>
+        `;
+        // Prefill with existing values
+        try {
+          document.getElementById('ob-mode').value = $mode.value || 'api';
+          document.getElementById('ob-provider').value = $provider.value || 'openai';
+          document.getElementById('ob-openai-key').value = $openaiKey.value || '';
+          document.getElementById('ob-anthropic-key').value = $anthropicKey.value || '';
+        } catch (_) {}
+        return;
+      } else if (wizardState.step === 2) {
+        $wizardBody.innerHTML = `
+          <div class="grid">
+            <div class="field"><label>Name</label><input id="w-name" type="text" placeholder="e.g., Technical Tutor" value="${escapeHtml(wizardState.name)}"/></div>
+            <div class="field"><label>Tone</label><input id="w-tone" type="text" placeholder="e.g., concise, friendly" value="${escapeHtml(wizardState.tone)}"/></div>
+          </div>
+          <div class="field"><label>Persona</label><input id="w-persona" type="text" placeholder="e.g., Senior AI Engineer" value="${escapeHtml(wizardState.persona)}"/></div>
+        `;
+        return;
+      } else {
+        // Review step
+        const mode = document.getElementById('ob-mode') ? document.getElementById('ob-mode').value : ($mode.value || 'api');
+        const provider = document.getElementById('ob-provider') ? document.getElementById('ob-provider').value : ($provider.value || 'openai');
+        $wizardBody.innerHTML = `
+          <div>
+            <div class="muted">Mode:</div>
+            <div style="margin-bottom:12px;"><strong>${escapeHtml(mode)}</strong> — Provider: <strong>${escapeHtml(provider)}</strong></div>
+            <div class="muted">Profile Preview:</div>
+            <div style="margin-top:8px; padding:8px; background:var(--panel); border-radius:8px;">
+              <div><strong>${escapeHtml(wizardState.name || 'My Profile')}</strong></div>
+              <div class="muted">${escapeHtml([wizardState.persona, wizardState.tone].filter(Boolean).join(' • '))}</div>
+              <div style="margin-top:8px;">${escapeHtml((wizardState.guidelines || []).join('\n'))}</div>
+            </div>
+            <div class="muted" style="margin-top:12px;">Click Save to create the profile and finish onboarding.</div>
+          </div>
+        `;
+        return;
+      }
+    }
+
+    // Default (non-onboarding) profile wizard rendering (existing behavior)
     if (wizardState.step === 1) {
       $wizardBody.innerHTML = `
         <div class="grid">
