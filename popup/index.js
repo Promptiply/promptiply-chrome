@@ -10,6 +10,7 @@
   const $mode = document.getElementById('mode');
   const $profile = document.getElementById('profile');
   const $openOptions = document.getElementById('open-options');
+  const $runOnboard = document.getElementById('run-onboard');
   const $hotkeyLabel = document.getElementById('hotkey-label');
   const $refineNow = document.getElementById('refine-now');
 
@@ -54,6 +55,15 @@
   $openOptions.addEventListener('click', () => {
     if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
     else window.open('chrome://extensions/?options=' + chrome.runtime.id);
+  });
+
+  $runOnboard?.addEventListener('click', () => {
+    // Open options with onboarding flag
+    const url = chrome.runtime.getURL('options/index.html?onboard=1');
+    chrome.tabs.create({ url }).catch(() => {
+      // fallback to options page
+      if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
+    });
   });
 
   $refineNow?.addEventListener('click', async () => {

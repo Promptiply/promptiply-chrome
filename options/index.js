@@ -331,6 +331,8 @@
         // Persist settings now
         saveSettings();
         onboardingSettingsSaved = true;
+        // Save draft of onboarding choices
+        saveOnboardingDraft();
       } catch (e) {
         console.error('[promptiply:options] onboarding next error:', e);
       }
@@ -351,7 +353,7 @@
     setWizardStep(wizardState.step + 1);
   });
   $wizardSave?.addEventListener('click', () => {
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+  chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null, siteOverrides: {} };
       if (wizardState.editingId) {
         const idx = cur.list.findIndex(p => p.id === wizardState.editingId);
@@ -385,6 +387,8 @@
               url.searchParams.delete('onboard');
               history.replaceState({}, '', url.toString());
             } catch (_) {}
+            // Remove onboarding draft
+            chrome.storage.local.remove(['onboardingDraft']);
           });
         }
       });
@@ -448,11 +452,31 @@
   }
   function startOnboarding() {
     // Reuse wizard modal for onboarding
-    wizardState = { step: 1, editingId: null, name: '', persona: '', tone: '', guidelines: [] };
     isOnboarding = true;
     onboardingSettingsSaved = false;
-    $modal.classList.add('modal-show');
-    setWizardStep(1);
+    // Try to load draft
+    loadOnboardingDraft((draftState) => {
+      if (draftState) wizardState = { ...draftState };
+      else wizardState = { step: 1, editingId: null, name: '', persona: '', tone: '', guidelines: [] };
+      $modal.classList.add('modal-show');
+      setWizardStep(wizardState.step || 1);
+    });
+  }
+  // Expose so popup or other pages can call it via scripting if needed
+  try { window.startOnboarding = startOnboarding; } catch (_) {}
+
+  // Draft save/load for onboarding so user can resume
+  function saveOnboardingDraft() {
+    if (!isOnboarding) return;
+    const draft = { wizardState, timestamp: Date.now() };
+    chrome.storage.local.set({ onboardingDraft: draft });
+  }
+  function loadOnboardingDraft(cb) {
+    chrome.storage.local.get(['onboardingDraft'], (data) => {
+      const d = data.onboardingDraft;
+      if (d && d.wizardState) cb(d.wizardState);
+      else cb(null);
+    });
   }
   function closeWizard() {
     $modal.classList.remove('modal-show');
@@ -492,6 +516,14 @@
           document.getElementById('ob-provider').value = $provider.value || 'openai';
           document.getElementById('ob-openai-key').value = $openaiKey.value || '';
           document.getElementById('ob-anthropic-key').value = $anthropicKey.value || '';
+          // Wire up draft saves
+          ['ob-mode','ob-provider','ob-openai-key','ob-anthropic-key'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => {
+              // store selected values to wizardState preview
+              saveOnboardingDraft();
+            });
+          });
         } catch (_) {}
         return;
       } else if (wizardState.step === 2) {
@@ -502,6 +534,18 @@
           </div>
           <div class="field"><label>Persona</label><input id="w-persona" type="text" placeholder="e.g., Senior AI Engineer" value="${escapeHtml(wizardState.persona)}"/></div>
         `;
+        // Wire up draft saves for profile fields
+        try {
+          ['w-name','w-tone','w-persona'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => {
+              wizardState.name = (document.getElementById('w-name')?.value || '').trim();
+              wizardState.tone = (document.getElementById('w-tone')?.value || '').trim();
+              wizardState.persona = (document.getElementById('w-persona')?.value || '').trim();
+              saveOnboardingDraft();
+            });
+          });
+        } catch (_) {}
         return;
       } else {
         // Review step

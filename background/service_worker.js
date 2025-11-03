@@ -88,7 +88,6 @@ try {
 } catch (e) {
   // Some environments may not allow setting onInstalled here — ignore safely
 }
-a
 async function handleRefinement(payload, sender) {
   const { prompt } = payload || {};
   console.log('[promptiply:bg] Received refinement request', { hasPayload: !!payload, promptPreview: prompt?.slice(0, 100) });
