@@ -72,6 +72,11 @@ button:focus-visible { outline:none; box-shadow: 0 0 0 3px rgba(124,58,237,0.35)
 .example-chip { padding:6px 8px; border-radius:999px; background:#071022; border:1px solid var(--border); color:var(--muted); cursor:pointer; }
 .example-chip:hover { background:#08142a; color:var(--text); }
 
+/* Predefined profiles list styling */
+#predefined-list .card{ display:flex; justify-content:space-between; align-items:center; padding:10px; border:1px solid var(--border); border-radius:10px; background: #071022; }
+#predefined-list .card .meta { gap:4px; display:flex; flex-direction:column; }
+#predefined-list .card button { margin-left:8px; }
+
 /* Onboarding wizard styles (reference) */
 .onboarding-dialog { max-width: 680px; }
 .onboarding-header { text-align: center; margin-bottom: 20px; }

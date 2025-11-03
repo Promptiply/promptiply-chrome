@@ -54,6 +54,13 @@
   let wizardState = { step: 1, editingId: null, name: '', persona: '', tone: '', guidelines: [] };
   let onboardingState = { step: 1, selectedMode: 'api', selectedProvider: 'openai', apiKey: '', model: '', profileName: '', profilePersona: '', profileTone: '' };
 
+  // Predefined profiles (example set) - can be extended
+  const PREDEFINED_PROFILES = [
+    { id: 'builtin_writer', name: 'Technical Writer', persona: 'Senior Technical Writer', tone: 'clear, concise', styleGuidelines: ['Use simple language','Prefer examples','No fluff'] },
+    { id: 'builtin_dev', name: 'Dev Helper', persona: 'Senior Software Engineer', tone: 'concise, pragmatic', styleGuidelines: ['Show code samples','Explain with steps','Use bullet lists'] },
+    { id: 'builtin_marketing', name: 'Marketing Copy', persona: 'Conversion-focused Marketer', tone: 'excited, persuasive', styleGuidelines: ['Short headlines','Call to action','A/B test variants'] }
+  ];
+
   // Utilities
   function getDefaultHotkey() { const platform = navigator.platform.toLowerCase(); return platform.includes('mac') ? 'Ctrl+T' : 'Alt+T'; }
   function capitalize(s){ return (s||'').charAt(0).toUpperCase() + (s||'').slice(1); }
@@ -100,6 +107,8 @@
   });
 
   chrome.storage.sync.get([STORAGE_PROFILES], (data)=>{ const p = data[STORAGE_PROFILES]||{list:[],activeProfileId:null}; renderProfiles(p); });
+  // Render built-in predefined profile list
+  renderPredefinedProfiles();
 
   if($version && chrome.runtime?.getManifest){ const m = chrome.runtime.getManifest(); if(m?.version) $version.textContent = `v${m.version}`; }
 
@@ -119,6 +128,28 @@
 
   // Wizard rendering & lifecycle
   function renderProfiles(p){ if(!$profilesList) return; $profilesList.innerHTML = ''; if(!p.list.length){ const empty = document.createElement('div'); empty.className='empty'; empty.innerHTML = 'No profile, create new one? <br/><br/>'; const btn = document.createElement('button'); btn.className='primary'; btn.textContent='Create Profile'; btn.addEventListener('click', ()=>openWizard()); empty.appendChild(btn); $profilesList.appendChild(empty); return; } p.list.forEach(prof=>{ const card=document.createElement('div'); card.className='card'; const meta=document.createElement('div'); meta.className='meta'; const title=document.createElement('div'); title.textContent=prof.name; const line=document.createElement('div'); line.className='muted'; line.textContent=[prof.persona,prof.tone].filter(Boolean).join(' • '); const chips=document.createElement('div'); (prof.styleGuidelines||[]).slice(0,3).forEach(g=>{ const c=document.createElement('span'); c.className='chip'; c.textContent=g; chips.appendChild(c); }); meta.appendChild(title); meta.appendChild(line); meta.appendChild(chips); const actions=document.createElement('div'); const activate=document.createElement('button'); activate.textContent = p.activeProfileId===prof.id ? 'Active' : 'Set Active'; activate.addEventListener('click', ()=>{ const updated = {...p, activeProfileId: prof.id}; chrome.storage.sync.set({[STORAGE_PROFILES]: updated}, ()=>renderProfiles(updated)); }); const edit=document.createElement('button'); edit.textContent='Edit'; edit.addEventListener('click', ()=>openWizard(prof)); const del=document.createElement('button'); del.textContent='Delete'; del.addEventListener('click', ()=>{ const updated={...p, list: p.list.filter(x=>x.id!==prof.id)}; if(updated.activeProfileId===prof.id) updated.activeProfileId = updated.list[0]?.id||null; chrome.storage.sync.set({[STORAGE_PROFILES]: updated}, ()=>renderProfiles(updated)); }); actions.appendChild(activate); actions.appendChild(edit); actions.appendChild(del); card.appendChild(meta); card.appendChild(actions); $profilesList.appendChild(card); }); }
+
+  // Render predefined profiles UI
+  function renderPredefinedProfiles(){ const $pre = document.getElementById('predefined-list'); if(!$pre) return; $pre.innerHTML = ''; PREDEFINED_PROFILES.forEach(p=>{ const row = document.createElement('div'); row.className='card'; const meta = document.createElement('div'); meta.className='meta'; const title = document.createElement('div'); title.textContent = p.name; const line = document.createElement('div'); line.className='muted'; line.textContent = p.persona; meta.appendChild(title); meta.appendChild(line); const actions = document.createElement('div'); const useBtn = document.createElement('button'); useBtn.textContent = 'Use'; useBtn.addEventListener('click', ()=>importPredefinedProfile(p)); const importBtn = document.createElement('button'); importBtn.textContent = 'Import'; importBtn.addEventListener('click', ()=>importPredefinedProfile(p, { activate:false })); actions.appendChild(useBtn); actions.appendChild(importBtn); row.appendChild(meta); row.appendChild(actions); $pre.appendChild(row); });
+    const importAll = document.getElementById('import-all-predefined'); if(importAll){ importAll.addEventListener('click', importAllPredefined); }
+  }
+
+  // Import a predefined profile into storage (avoid id conflicts)
+  function importPredefinedProfile(pref, opts={ activate:true }){
+    chrome.storage.sync.get([STORAGE_PROFILES], (data)=>{
+      const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+      // If already exists by name, just activate or return
+      const exists = cur.list.find(x=>x.name===pref.name);
+      if(exists){ if(opts.activate){ cur.activeProfileId = exists.id; chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, ()=>{ renderProfiles(cur); }); } return; }
+      const id = `p_${Date.now()}_${Math.floor(Math.random()*9999)}`;
+      const newP = { id, name: pref.name, persona: pref.persona, tone: pref.tone||'', styleGuidelines: pref.styleGuidelines||[], constraints: [], examples: [], domainTags: [] };
+      cur.list.push(newP);
+      if(opts.activate && !cur.activeProfileId) cur.activeProfileId = newP.id;
+      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, ()=>{ renderProfiles(cur); });
+    });
+  }
+
+  function importAllPredefined(){ PREDEFINED_PROFILES.forEach(p=> importPredefinedProfile(p,{ activate:false })); }
 
   function openWizard(existing){ wizardState = { step:1, editingId: existing?.id||null, name: existing?.name||'', persona: existing?.persona||'', tone: existing?.tone||'', guidelines: existing?.styleGuidelines||[] }; try{ $onboardingModal?.classList.remove('modal-show'); } catch(_){} $profileModal?.classList.add('modal-show'); setWizardStep(1); }
   function closeWizard(){ $profileModal?.classList.remove('modal-show'); }
