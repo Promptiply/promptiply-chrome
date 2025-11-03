@@ -55,3 +55,25 @@ button:focus-visible { outline:none; box-shadow: 0 0 0 3px rgba(124,58,237,0.35)
 .wizard-save-hidden { display:none; }
 .tab-panel-hidden { display:none !important; }
 
+/* Onboarding wizard styles */
+.onboarding-dialog { max-width: 680px; }
+.onboarding-header { text-align: center; margin-bottom: 20px; }
+.onboarding-header h2 { margin: 10px 0 0 0; font-size: 24px; font-weight: 700; }
+.onboarding-body { min-height: 300px; }
+.mode-card { padding: 16px; border: 2px solid var(--border); border-radius: 12px; margin-bottom: 12px; cursor: pointer; transition: all .2s ease; background: #0b1220; }
+.mode-card:hover { border-color: var(--accent); background: #111827; }
+.mode-card.selected { border-color: var(--accent); background: #111827; box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
+.mode-card h3 { margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.mode-card p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.mode-card .mode-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-top: 8px; }
+.mode-card .mode-badge.badge-easy { background: #10b981; color: #fff; }
+.mode-card .mode-badge.badge-private { background: #7c3aed; color: #fff; }
+.mode-card .mode-badge.badge-simple { background: #06b6d4; color: #fff; }
+.onboarding-section { margin-bottom: 20px; }
+.onboarding-section h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
+.onboarding-section p { margin: 0 0 12px 0; color: var(--muted); line-height: 1.6; }
+.onboarding-success { text-align: center; padding: 40px 20px; }
+.onboarding-success .icon-48 { width: 64px; height: 64px; margin-bottom: 16px; }
+.onboarding-success h3 { margin: 0 0 12px 0; font-size: 20px; font-weight: 700; }
+.onboarding-success p { color: var(--muted); line-height: 1.6; margin: 0; }
+

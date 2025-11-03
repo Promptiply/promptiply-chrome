@@ -421,6 +421,327 @@
     }
   }
   function escapeHtml(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // Onboarding wizard
+  const STORAGE_ONBOARDING = 'onboarding_completed';
+  const $onboardingModal = document.getElementById('onboarding-modal');
+  const $onboardingBody = document.getElementById('onboarding-body');
+  const $onboardingSkip = document.getElementById('onboarding-skip');
+  const $onboardingBack = document.getElementById('onboarding-back');
+  const $onboardingNext = document.getElementById('onboarding-next');
+  const $onboardingFinish = document.getElementById('onboarding-finish');
+  const $onboardingSteps = Array.from(document.querySelectorAll('#onboarding-modal .step'));
+  const $runOnboarding = document.getElementById('run-onboarding');
+  let onboardingState = {
+    step: 1,
+    selectedMode: 'api',
+    selectedProvider: 'openai',
+    apiKey: '',
+    model: '',
+    profileName: '',
+    profilePersona: '',
+    profileTone: ''
+  };
+
+  // Check if this is first install
+  chrome.storage.local.get([STORAGE_ONBOARDING], (data) => {
+    if (!data[STORAGE_ONBOARDING]) {
+      // First time user - show onboarding
+      setTimeout(() => openOnboardingWizard(), 500);
+    }
+  });
+
+  $runOnboarding?.addEventListener('click', () => openOnboardingWizard());
+  $onboardingSkip?.addEventListener('click', closeOnboardingWizard);
+  $onboardingBack?.addEventListener('click', () => setOnboardingStep(onboardingState.step - 1));
+  $onboardingNext?.addEventListener('click', handleOnboardingNext);
+  $onboardingFinish?.addEventListener('click', finishOnboarding);
+
+  function openOnboardingWizard() {
+    onboardingState = {
+      step: 1,
+      selectedMode: 'api',
+      selectedProvider: 'openai',
+      apiKey: '',
+      model: '',
+      profileName: '',
+      profilePersona: '',
+      profileTone: ''
+    };
+    $onboardingModal.classList.add('modal-show');
+    setOnboardingStep(1);
+  }
+
+  function closeOnboardingWizard() {
+    $onboardingModal.classList.remove('modal-show');
+    chrome.storage.local.set({ [STORAGE_ONBOARDING]: true });
+  }
+
+  function setOnboardingStep(step) {
+    onboardingState.step = Math.max(1, Math.min(4, step));
+    $onboardingSteps.forEach(s => s.classList.toggle('active', Number(s.dataset.step) === onboardingState.step));
+    $onboardingBack.classList.toggle('tab-panel-hidden', onboardingState.step === 1);
+    $onboardingNext.classList.toggle('tab-panel-hidden', onboardingState.step === 4);
+    $onboardingFinish.classList.toggle('wizard-save-hidden', onboardingState.step !== 4);
+
+    if (onboardingState.step === 1) {
+      renderModesStep();
+    } else if (onboardingState.step === 2) {
+      renderSetupStep();
+    } else if (onboardingState.step === 3) {
+      renderProfileStep();
+    } else if (onboardingState.step === 4) {
+      renderReadyStep();
+    }
+  }
+
+  function renderModesStep() {
+    $onboardingBody.innerHTML = `
+      <div class="onboarding-section">
+        <h3>Choose Your Refinement Mode</h3>
+        <p>promptiply offers three ways to refine your prompts. Choose the one that fits your needs:</p>
+      </div>
+      <div class="mode-card ${onboardingState.selectedMode === 'api' ? 'selected' : ''}" data-mode="api">
+        <h3>API Mode</h3>
+        <p>Uses your OpenAI or Anthropic API key for fast, reliable refinement. Best for regular use.</p>
+        <span class="mode-badge badge-easy">Recommended</span>
+      </div>
+      <div class="mode-card ${onboardingState.selectedMode === 'webui' ? 'selected' : ''}" data-mode="webui">
+        <h3>WebUI Mode</h3>
+        <p>Opens a background tab to ChatGPT or Claude, sends your prompt, and reads the response. No API key needed.</p>
+        <span class="mode-badge badge-simple">Simple Setup</span>
+      </div>
+      <div class="mode-card ${onboardingState.selectedMode === 'local' ? 'selected' : ''}" data-mode="local">
+        <h3>Local Mode (Llama 3)</h3>
+        <p>Runs entirely in your browser using Llama 3.1 8B model. Completely private and offline after initial download (~5GB).</p>
+        <span class="mode-badge badge-private">100% Private</span>
+      </div>
+    `;
+
+    document.querySelectorAll('.mode-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const mode = card.dataset.mode;
+        onboardingState.selectedMode = mode;
+        document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      });
+    });
+  }
+
+  function renderSetupStep() {
+    if (onboardingState.selectedMode === 'api') {
+      $onboardingBody.innerHTML = `
+        <div class="onboarding-section">
+          <h3>API Setup</h3>
+          <p>To use API mode, you'll need an API key from your chosen provider. Don't worry - your API key is stored locally and never leaves your device.</p>
+        </div>
+        <div class="field">
+          <label>Provider</label>
+          <select id="ob-provider">
+            <option value="openai" ${onboardingState.selectedProvider === 'openai' ? 'selected' : ''}>OpenAI (ChatGPT)</option>
+            <option value="anthropic" ${onboardingState.selectedProvider === 'anthropic' ? 'selected' : ''}>Anthropic (Claude)</option>
+          </select>
+        </div>
+        <div id="ob-openai-fields" style="${onboardingState.selectedProvider === 'openai' ? '' : 'display:none;'}">
+          <div class="field">
+            <label>OpenAI API Key</label>
+            <input id="ob-openai-key" type="password" placeholder="sk-..." value="${escapeHtml(onboardingState.apiKey)}" />
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <select id="ob-openai-model">
+              <option value="gpt-5-nano">gpt-5-nano</option>
+              <option value="gpt-5-mini">gpt-5-mini</option>
+              <option value="gpt-5">gpt-5</option>
+            </select>
+          </div>
+        </div>
+        <div id="ob-anthropic-fields" style="${onboardingState.selectedProvider === 'anthropic' ? '' : 'display:none;'}">
+          <div class="field">
+            <label>Anthropic API Key</label>
+            <input id="ob-anthropic-key" type="password" placeholder="sk-ant-..." value="${escapeHtml(onboardingState.apiKey)}" />
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <select id="ob-anthropic-model">
+              <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+              <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px;margin-top:12px;">You can skip this step and set up your API key later in Settings.</p>
+      `;
+
+      const $obProvider = document.getElementById('ob-provider');
+      const $obOpenaiFields = document.getElementById('ob-openai-fields');
+      const $obAnthropicFields = document.getElementById('ob-anthropic-fields');
+
+      $obProvider.addEventListener('change', () => {
+        onboardingState.selectedProvider = $obProvider.value;
+        $obOpenaiFields.style.display = onboardingState.selectedProvider === 'openai' ? '' : 'none';
+        $obAnthropicFields.style.display = onboardingState.selectedProvider === 'anthropic' ? '' : 'none';
+      });
+    } else if (onboardingState.selectedMode === 'webui') {
+      $onboardingBody.innerHTML = `
+        <div class="onboarding-section">
+          <h3>WebUI Mode Setup</h3>
+          <p>WebUI mode doesn't require any API keys! It works by opening a background tab to ChatGPT or Claude, sending your refinement request, and reading the response.</p>
+          <p>Make sure you're logged into ChatGPT or Claude in your browser, and the extension will handle the rest.</p>
+        </div>
+        <div class="field">
+          <label>Preferred Provider</label>
+          <select id="ob-webui-provider">
+            <option value="chatgpt">ChatGPT (chat.openai.com)</option>
+            <option value="claude">Claude (claude.ai)</option>
+          </select>
+        </div>
+        <p class="muted" style="font-size:12px;margin-top:12px;">The extension automatically detects which site you're on and uses it for refinement.</p>
+      `;
+    } else {
+      $onboardingBody.innerHTML = `
+        <div class="onboarding-section">
+          <h3>Local Mode Setup</h3>
+          <p>Local mode runs entirely in your browser using Llama 3.1 8B Instruct model via web-llm. This means:</p>
+          <ul style="color:var(--muted);line-height:1.8;margin:0 0 12px 0;">
+            <li>Complete privacy - no data leaves your device</li>
+            <li>Works offline after initial download</li>
+            <li>Requires ~5GB download (one-time)</li>
+            <li>Requires WebGPU support (Chrome/Edge 113+)</li>
+          </ul>
+          <p>The model will be downloaded when you first use local mode. A progress bar will show download status.</p>
+        </div>
+        <p class="muted" style="font-size:12px;margin-top:12px;">You can start using local mode after completing this wizard. The model download will begin automatically on first use.</p>
+      `;
+    }
+  }
+
+  function renderProfileStep() {
+    $onboardingBody.innerHTML = `
+      <div class="onboarding-section">
+        <h3>Create Your First Profile</h3>
+        <p>Profiles help tailor prompt refinements to your specific needs. You can create more profiles later.</p>
+      </div>
+      <div class="field">
+        <label>Profile Name</label>
+        <input id="ob-profile-name" type="text" placeholder="e.g., Technical Tutor" value="${escapeHtml(onboardingState.profileName)}" />
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label>Persona (optional)</label>
+          <input id="ob-profile-persona" type="text" placeholder="e.g., Senior AI Engineer" value="${escapeHtml(onboardingState.profilePersona)}" />
+        </div>
+        <div class="field">
+          <label>Tone (optional)</label>
+          <input id="ob-profile-tone" type="text" placeholder="e.g., concise, friendly" value="${escapeHtml(onboardingState.profileTone)}" />
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:12px;">You can skip profile creation and use the default settings, or create a profile later in Settings.</p>
+    `;
+  }
+
+  function renderReadyStep() {
+    $onboardingBody.innerHTML = `
+      <div class="onboarding-success">
+        <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+        <h3>You're All Set!</h3>
+        <p>promptiply is ready to help you refine your prompts. Here's what you configured:</p>
+        <div style="text-align:left;margin:24px auto;max-width:400px;">
+          <div style="margin-bottom:12px;"><strong>Mode:</strong> ${onboardingState.selectedMode === 'api' ? 'API' : onboardingState.selectedMode === 'webui' ? 'WebUI' : 'Local (Llama 3)'}</div>
+          ${onboardingState.selectedMode === 'api' && onboardingState.apiKey ? `<div style="margin-bottom:12px;"><strong>Provider:</strong> ${onboardingState.selectedProvider === 'openai' ? 'OpenAI' : 'Anthropic'}</div>` : ''}
+          ${onboardingState.profileName ? `<div style="margin-bottom:12px;"><strong>Profile:</strong> ${escapeHtml(onboardingState.profileName)}</div>` : ''}
+        </div>
+        <p style="margin-top:24px;">Visit <strong>chat.openai.com</strong> or <strong>claude.ai</strong> and press <strong>Alt+T</strong> (or click the Refine button) to start refining your prompts!</p>
+      </div>
+    `;
+  }
+
+  function handleOnboardingNext() {
+    if (onboardingState.step === 2 && onboardingState.selectedMode === 'api') {
+      // Capture API key and model from step 2
+      const $obProvider = document.getElementById('ob-provider');
+      if ($obProvider) {
+        onboardingState.selectedProvider = $obProvider.value;
+      }
+
+      if (onboardingState.selectedProvider === 'openai') {
+        const $obOpenaiKey = document.getElementById('ob-openai-key');
+        const $obOpenaiModel = document.getElementById('ob-openai-model');
+        if ($obOpenaiKey) onboardingState.apiKey = $obOpenaiKey.value.trim();
+        if ($obOpenaiModel) onboardingState.model = $obOpenaiModel.value;
+      } else {
+        const $obAnthropicKey = document.getElementById('ob-anthropic-key');
+        const $obAnthropicModel = document.getElementById('ob-anthropic-model');
+        if ($obAnthropicKey) onboardingState.apiKey = $obAnthropicKey.value.trim();
+        if ($obAnthropicModel) onboardingState.model = $obAnthropicModel.value;
+      }
+    } else if (onboardingState.step === 3) {
+      // Capture profile from step 3
+      const $obProfileName = document.getElementById('ob-profile-name');
+      const $obProfilePersona = document.getElementById('ob-profile-persona');
+      const $obProfileTone = document.getElementById('ob-profile-tone');
+      if ($obProfileName) onboardingState.profileName = $obProfileName.value.trim();
+      if ($obProfilePersona) onboardingState.profilePersona = $obProfilePersona.value.trim();
+      if ($obProfileTone) onboardingState.profileTone = $obProfileTone.value.trim();
+    }
+
+    setOnboardingStep(onboardingState.step + 1);
+  }
+
+  function finishOnboarding() {
+    // Save settings
+    chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
+      const settings = data[STORAGE_SETTINGS] || {};
+      settings.mode = onboardingState.selectedMode;
+      
+      if (onboardingState.selectedMode === 'api') {
+        settings.provider = onboardingState.selectedProvider;
+        if (onboardingState.apiKey) {
+          if (onboardingState.selectedProvider === 'openai') {
+            settings.openaiKey = onboardingState.apiKey;
+            settings.openaiModel = onboardingState.model || 'gpt-5-nano';
+          } else {
+            settings.anthropicKey = onboardingState.apiKey;
+            settings.anthropicModel = onboardingState.model || 'claude-haiku-4-5';
+          }
+        }
+      }
+      
+      chrome.storage.local.set({ [STORAGE_SETTINGS]: settings });
+    });
+
+    // Create profile if provided
+    if (onboardingState.profileName) {
+      chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+        const profiles = data[STORAGE_PROFILES] || { list: [], activeProfileId: null, siteOverrides: {} };
+        const profileId = `p_${Date.now()}`;
+        const newProfile = {
+          id: profileId,
+          name: onboardingState.profileName,
+          persona: onboardingState.profilePersona,
+          tone: onboardingState.profileTone,
+          styleGuidelines: [],
+          constraints: [],
+          examples: [],
+          domainTags: []
+        };
+        profiles.list.push(newProfile);
+        if (!profiles.activeProfileId) {
+          profiles.activeProfileId = profileId;
+        }
+        chrome.storage.sync.set({ [STORAGE_PROFILES]: profiles }, () => {
+          renderProfiles(profiles);
+        });
+      });
+    }
+
+    // Mark onboarding as completed
+    chrome.storage.local.set({ [STORAGE_ONBOARDING]: true });
+    
+    closeOnboardingWizard();
+    
+    // Refresh the page to load new settings
+    setTimeout(() => location.reload(), 300);
+  }
 })();
 
 

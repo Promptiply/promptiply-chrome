@@ -55,6 +55,7 @@
       </div>
       <div class="actions actions-top-margin">
         <button id="save-settings" class="primary">Save Settings</button>
+        <button id="run-onboarding">Run Onboarding Wizard</button>
       </div>
     </div>
 
@@ -115,6 +116,33 @@
             <button id="wizard-back">Back</button>
             <button id="wizard-next" class="primary">Next</button>
             <button id="wizard-save" class="primary wizard-save-hidden">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onboarding Wizard Modal -->
+    <div class="modal" id="onboarding-modal">
+      <div class="dialog onboarding-dialog">
+        <div class="onboarding-header">
+          <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+          <h2>Welcome to promptiply!</h2>
+        </div>
+        <div class="steps">
+          <div class="step" data-step="1">Modes</div>
+          <div class="step" data-step="2">Setup</div>
+          <div class="step" data-step="3">Profile</div>
+          <div class="step" data-step="4">Ready</div>
+        </div>
+        <div id="onboarding-body"></div>
+        <div class="actions actions-space-between actions-top-margin">
+          <div>
+            <button id="onboarding-skip">Skip</button>
+          </div>
+          <div>
+            <button id="onboarding-back">Back</button>
+            <button id="onboarding-next" class="primary">Next</button>
+            <button id="onboarding-finish" class="primary wizard-save-hidden">Get Started</button>
           </div>
         </div>
       </div>
