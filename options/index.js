@@ -66,6 +66,44 @@
   function capitalize(s){ return (s||'').charAt(0).toUpperCase() + (s||'').slice(1); }
   function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  // Validation for imported predefined profiles
+  function validatePredefinedArray(arr){
+    if(!Array.isArray(arr)) return { valid:false, reason: 'Not an array' };
+    const out = [];
+    for(let i=0;i<arr.length;i++){
+      const it = arr[i];
+      if(!it || typeof it !== 'object') return { valid:false, reason: `Item ${i} is not an object` };
+      const id = it.id && String(it.id).trim() ? String(it.id).trim() : `builtin_${Math.random().toString(36).slice(2,7)}`;
+      const name = it.name && String(it.name).trim(); if(!name) return { valid:false, reason: `Item ${i} missing name` };
+      const persona = it.persona ? String(it.persona) : '';
+      const tone = it.tone ? String(it.tone) : '';
+      const sg = Array.isArray(it.styleGuidelines) ? it.styleGuidelines.map(s=>String(s)) : (it.styleGuidelines ? String(it.styleGuidelines).split('\n').map(s=>s.trim()).filter(Boolean) : []);
+      out.push({ id, name, persona, tone, styleGuidelines: sg });
+    }
+    return { valid:true, list: out };
+  }
+
+  // Toast helper
+  // Toast helper using CSS transitions
+  function showToast(message, type='success', title){
+    try{
+      const container = document.getElementById('toast-container'); if(!container) return alert(message);
+      const t = document.createElement('div'); t.className = 'toast ' + (type==='error' ? 'error' : 'success');
+      const icon = document.createElement('div'); icon.className = 'icon'; icon.textContent = type==='error' ? '!' : '✓';
+      const content = document.createElement('div'); content.className = 'content'; if(title){ const h = document.createElement('div'); h.className='title'; h.textContent = title; content.appendChild(h); }
+      const m = document.createElement('div'); m.textContent = message; content.appendChild(m);
+      t.appendChild(icon); t.appendChild(content);
+      container.appendChild(t);
+      // Force a reflow then add show class to trigger transition
+      window.requestAnimationFrame(()=> t.classList.add('show'));
+      // Auto dismiss after 4.2s with a smooth exit
+      const dismiss = ()=>{ t.classList.remove('show'); t.classList.add('exit'); setTimeout(()=>{ try{ t.remove(); }catch(_){} }, 260); };
+      const timeoutId = setTimeout(dismiss, 4200);
+      // allow click to dismiss
+      t.addEventListener('click', ()=>{ clearTimeout(timeoutId); dismiss(); });
+    } catch(e){ console.warn('toast failed', e); }
+  }
+
   function normalizeHotkey(v){
     const t = (v||'').trim(); if(!t) return getDefaultHotkey();
     const parts = t.split('+').map(x=>x.trim()).filter(Boolean);
@@ -110,6 +148,16 @@
   // Render built-in predefined profile list
   renderPredefinedProfiles();
 
+  // Schema versioning for export/import
+  const EXPORT_SCHEMA_VERSION = 1;
+  function buildExportEnvelope(list){ return { schemaVersion: EXPORT_SCHEMA_VERSION, exportedAt: new Date().toISOString(), profiles: list }; }
+  function parseImportEnvelope(obj){ // accepts either envelope or raw array
+    if(!obj) return { valid:false, reason:'Empty payload' };
+    if(Array.isArray(obj)) return validatePredefinedArray(obj);
+    if(typeof obj === 'object' && Array.isArray(obj.profiles)) return validatePredefinedArray(obj.profiles);
+    return { valid:false, reason:'Unexpected JSON shape' };
+  }
+
   if($version && chrome.runtime?.getManifest){ const m = chrome.runtime.getManifest(); if(m?.version) $version.textContent = `v${m.version}`; }
 
   function saveSettings(){ const s = { mode: $mode.value, provider: $provider.value, openaiKey: $openaiKey.value.trim()||undefined, openaiModel: getModelValue($openaiModelSelect,$openaiModelCustom), anthropicKey: $anthropicKey.value.trim()||undefined, anthropicModel: getModelValue($anthropicModelSelect,$anthropicModelCustom), refineHotkey: normalizeHotkey(recordedHotkey||getDefaultHotkey()) }; chrome.storage.local.set({[STORAGE_SETTINGS]:s}); if(recordedHotkey){ recordedHotkey = s.refineHotkey; updateHotkeyDisplay(); } }
@@ -132,6 +180,54 @@
   // Render predefined profiles UI
   function renderPredefinedProfiles(){ const $pre = document.getElementById('predefined-list'); if(!$pre) return; $pre.innerHTML = ''; PREDEFINED_PROFILES.forEach(p=>{ const row = document.createElement('div'); row.className='card'; const meta = document.createElement('div'); meta.className='meta'; const title = document.createElement('div'); title.textContent = p.name; const line = document.createElement('div'); line.className='muted'; line.textContent = p.persona; meta.appendChild(title); meta.appendChild(line); const actions = document.createElement('div'); const useBtn = document.createElement('button'); useBtn.textContent = 'Use'; useBtn.addEventListener('click', ()=>importPredefinedProfile(p)); const importBtn = document.createElement('button'); importBtn.textContent = 'Import'; importBtn.addEventListener('click', ()=>importPredefinedProfile(p, { activate:false })); actions.appendChild(useBtn); actions.appendChild(importBtn); row.appendChild(meta); row.appendChild(actions); $pre.appendChild(row); });
     const importAll = document.getElementById('import-all-predefined'); if(importAll){ importAll.addEventListener('click', importAllPredefined); }
+    // Manage button
+    const manageBtn = document.getElementById('manage-predefined'); if(manageBtn){ manageBtn.addEventListener('click', openManagePredefined); }
+
+    // File import
+  const fileInput = document.getElementById('predefined-file'); if(fileInput){ fileInput.addEventListener('change', (ev)=>{ const f = ev.target.files && ev.target.files[0]; if(!f) return; const reader = new FileReader(); reader.onload = (e)=>{ try{ const raw = JSON.parse(e.target.result); const parsed = parseImportEnvelope(raw); if(parsed.valid){ PREDEFINED_PROFILES.splice(0,PREDEFINED_PROFILES.length, ...parsed.list); renderPredefinedProfiles(); showToast('Predefined profiles loaded from file','success'); } else { showToast('Invalid file: '+parsed.reason,'error'); } } catch(err){ showToast('Failed to parse JSON: '+err.message,'error'); } }; reader.readAsText(f); }); }
+
+    // URL import
+  const urlInput = document.getElementById('predefined-url'); const urlLoad = document.getElementById('predefined-url-load'); const urlSpinner = document.getElementById('predefined-url-spinner'); if(urlLoad && urlInput){ urlLoad.addEventListener('click', async ()=>{ const u = urlInput.value.trim(); if(!u) return showToast('Enter a URL to load','error'); try{ urlSpinner.hidden = false; // insert spinner (already present)
+    // fetch with timeout
+        const controller = new AbortController(); const timeout = setTimeout(()=>controller.abort(), 12000);
+    const resp = await fetch(u, { signal: controller.signal }); clearTimeout(timeout);
+        if(!resp.ok) { urlSpinner.style.display='none'; return showToast('Failed to fetch URL: '+resp.status+' '+resp.statusText,'error'); }
+        const contentType = resp.headers.get('content-type') || '';
+        if(!contentType.includes('application/json') && !contentType.includes('text/json')){ // still try to parse but warn
+          // continue
+        }
+        const raw = await resp.json(); const parsed = parseImportEnvelope(raw); if(parsed.valid){ PREDEFINED_PROFILES.splice(0,PREDEFINED_PROFILES.length, ...parsed.list); renderPredefinedProfiles(); showToast('Loaded predefined profiles from URL','success'); } else { showToast('Invalid JSON from URL: '+parsed.reason,'error'); }
+        urlSpinner.hidden = true;
+      } catch(err){ urlSpinner.style.display='none'; if(err.name==='AbortError') showToast('Request timed out (12s)','error'); else showToast('Failed to load URL: '+err.message,'error'); } }); }
+
+    // Export button
+    const exportBtn = document.getElementById('export-predefined'); if(exportBtn){ exportBtn.addEventListener('click', ()=>{ try{ const envelope = buildExportEnvelope(PREDEFINED_PROFILES); const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'promptiply-predefined-profiles.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); showToast('Export started','success'); } catch(err){ showToast('Export failed: '+err.message,'error'); } }); }
+
+    // Restore defaults with confirmation modal
+    const restoreBtn = document.getElementById('restore-predefined'); const restoreModal = document.getElementById('restore-modal'); const restoreCancel = document.getElementById('restore-cancel'); const restoreConfirm = document.getElementById('restore-confirm'); const restoreDeleteImported = document.getElementById('restore-delete-imported');
+    if(restoreBtn && restoreModal && restoreCancel && restoreConfirm){ restoreBtn.addEventListener('click', ()=>{ restoreModal.classList.add('modal-show'); restoreDeleteImported.checked = false; });
+      restoreCancel.addEventListener('click', ()=>{ restoreModal.classList.remove('modal-show'); });
+      restoreConfirm.addEventListener('click', async ()=>{
+        // perform restore: replace builtins, and optionally delete imported profiles from storage
+        PREDEFINED_PROFILES.splice(0,PREDEFINED_PROFILES.length, 
+          { id: 'builtin_writer', name: 'Technical Writer', persona: 'Senior Technical Writer', tone: 'clear, concise', styleGuidelines: ['Use simple language','Prefer examples','No fluff'] },
+          { id: 'builtin_dev', name: 'Dev Helper', persona: 'Senior Software Engineer', tone: 'concise, pragmatic', styleGuidelines: ['Show code samples','Explain with steps','Use bullet lists'] },
+          { id: 'builtin_marketing', name: 'Marketing Copy', persona: 'Conversion-focused Marketer', tone: 'excited, persuasive', styleGuidelines: ['Short headlines','Call to action','A/B test variants'] }
+        ); renderPredefinedProfiles();
+        restoreModal.classList.remove('modal-show');
+        showToast('Predefined profiles restored to defaults','success');
+        if(restoreDeleteImported.checked){
+          // remove profiles from chrome.storage.sync that match by name (imported ones)
+          chrome.storage.sync.get([STORAGE_PROFILES], (data)=>{
+            const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+            const namesToRemove = new Set(['Technical Writer','Dev Helper','Marketing Copy']);
+            const remaining = cur.list.filter(p=> !namesToRemove.has(p.name));
+            const updated = { ...cur, list: remaining, activeProfileId: remaining[0]?.id || null };
+            chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, ()=>{ renderProfiles(updated); showToast('Removed imported profiles','success'); });
+          });
+        }
+      });
+    }
   }
 
   // Import a predefined profile into storage (avoid id conflicts)
@@ -150,6 +246,39 @@
   }
 
   function importAllPredefined(){ PREDEFINED_PROFILES.forEach(p=> importPredefinedProfile(p,{ activate:false })); }
+
+  // Manage predefined modal
+  function openManagePredefined(){ const modal = document.getElementById('predefined-modal'); const list = document.getElementById('predefined-manage-list'); if(!modal||!list) return; list.innerHTML=''; PREDEFINED_PROFILES.forEach((p,idx)=>{ const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.marginBottom='8px'; const name = document.createElement('input'); name.type='text'; name.value = p.name; name.style.flex='1'; const persona = document.createElement('input'); persona.type='text'; persona.value = p.persona; persona.style.width='260px'; const del = document.createElement('button'); del.textContent='Delete'; del.addEventListener('click', ()=>{ PREDEFINED_PROFILES.splice(idx,1); openManagePredefined(); renderPredefinedProfiles(); }); row.appendChild(name); row.appendChild(persona); row.appendChild(del); list.appendChild(row); }); modal.classList.add('modal-show');
+    // Build richer edit rows (name, persona, tone, guidelines textarea)
+    const saveBtn = document.getElementById('predefined-manage-save'); const cancelBtn = document.getElementById('predefined-manage-cancel');
+    saveBtn?.addEventListener('click', ()=>{
+      const rows = Array.from(list.querySelectorAll('div')); const newList = [];
+      rows.forEach((r, i)=>{
+        const nameIn = r.querySelector('.m-name'); const personaIn = r.querySelector('.m-persona'); const toneIn = r.querySelector('.m-tone'); const guideIn = r.querySelector('.m-guides');
+        if(nameIn && nameIn.value.trim()){
+          const guides = (guideIn?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+          newList.push({ id: PREDEFINED_PROFILES[i]?.id || `builtin_${Math.random().toString(36).slice(2,7)}`, name: nameIn.value.trim(), persona: personaIn?.value.trim()||'', tone: toneIn?.value.trim()||'', styleGuidelines: guides });
+        }
+      });
+      // Validate resulting list
+      const validated = validatePredefinedArray(newList);
+      if(!validated.valid){ showToast('Validation failed: '+validated.reason,'error'); return; }
+      PREDEFINED_PROFILES.splice(0,PREDEFINED_PROFILES.length, ...validated.list);
+      renderPredefinedProfiles(); modal.classList.remove('modal-show'); showToast('Predefined profiles updated','success');
+    });
+    cancelBtn?.addEventListener('click', ()=>{ modal.classList.remove('modal-show'); });
+    // populate rows with richer fields
+    list.innerHTML = '';
+    PREDEFINED_PROFILES.forEach((p, idx)=>{
+      const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.marginBottom='8px';
+      const name = document.createElement('input'); name.type='text'; name.className='m-name'; name.value = p.name; name.style.flex='1';
+      const persona = document.createElement('input'); persona.type='text'; persona.className='m-persona'; persona.value = p.persona; persona.style.width='220px';
+      const tone = document.createElement('input'); tone.type='text'; tone.className='m-tone'; tone.value = p.tone||''; tone.style.width='160px';
+      const guides = document.createElement('textarea'); guides.className='m-guides'; guides.placeholder = 'One guideline per line'; guides.value = (p.styleGuidelines||[]).join('\n'); guides.style.width='260px';
+      const del = document.createElement('button'); del.textContent='Delete'; del.addEventListener('click', ()=>{ PREDEFINED_PROFILES.splice(idx,1); openManagePredefined(); renderPredefinedProfiles(); });
+      row.appendChild(name); row.appendChild(persona); row.appendChild(tone); row.appendChild(guides); row.appendChild(del); list.appendChild(row);
+    });
+  }
 
   function openWizard(existing){ wizardState = { step:1, editingId: existing?.id||null, name: existing?.name||'', persona: existing?.persona||'', tone: existing?.tone||'', guidelines: existing?.styleGuidelines||[] }; try{ $onboardingModal?.classList.remove('modal-show'); } catch(_){} $profileModal?.classList.add('modal-show'); setWizardStep(1); }
   function closeWizard(){ $profileModal?.classList.remove('modal-show'); }
