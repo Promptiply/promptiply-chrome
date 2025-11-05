@@ -43,23 +43,6 @@
             <option value="anthropic">Anthropic (Claude)</option>
           </select>
         </div>
-        <div class="field field-no-margin" style="grid-column:1 / -1;">
-          <label>Analytics</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="analytics-optin" type="checkbox" />
-            <div class="muted">Help improve promptiply by sending anonymous local events (stored locally). No external network by default.</div>
-          </div>
-        </div>
-      </div>
-      <div class="field field-top-margin" id="analytics-debug">
-        <label>Analytics (debug)</label>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-          <button id="analytics-view" type="button">View Events</button>
-          <button id="analytics-export" type="button">Export JSON</button>
-          <button id="analytics-clear" type="button">Clear Events</button>
-          <div class="muted" id="analytics-count">0 events</div>
-        </div>
-        <pre id="analytics-list" style="display:none; max-height:220px; overflow:auto; background:#071022; padding:8px; border-radius:8px; border:1px solid var(--border);"></pre>
       </div>
       <div class="field field-full field-top-margin">
         <label>Refine Hotkey</label>
@@ -114,9 +97,9 @@
       <div class="actions actions-flex-end">
         <button id="new-profile" class="primary">New Profile</button>
       </div>
-      <div class="predefined-section" style="margin-bottom:14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <div style="font-weight:700;">Predefined profiles</div>
+      <div class="predefined-section">
+        <div>
+          <div>Predefined profiles</div>
           <div><button id="import-all-predefined">Import all</button></div>
         </div>
         <div id="predefined-list" class="list"></div>
