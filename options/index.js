@@ -863,6 +863,7 @@
 
   // Restore Defaults - resets to only predefined profiles
   function showRestoreConfirmation() {
+    console.log('[promptiply] showRestoreConfirmation called');
     chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
       const predefinedProfiles = cur.list.filter(p => p.importedFromPredefined === true);
@@ -1017,6 +1018,7 @@
 
   // Export profiles with selection
   function exportProfiles() {
+    console.log('[promptiply] exportProfiles called');
     chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const profiles = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
       
@@ -1143,6 +1145,7 @@
 
   // Import profiles modal
   function showImportModal() {
+    console.log('[promptiply] showImportModal called');
     const modal = document.createElement('div');
     modal.className = 'modal modal-show';
     modal.id = 'import-modal';
@@ -1263,6 +1266,7 @@
     if (cancelBtn) {
       cancelBtn.addEventListener('click', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         modal.remove();
       });
     }
@@ -1270,6 +1274,7 @@
     if (executeBtn) {
       executeBtn.addEventListener('click', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         executeImport(modal);
       });
     }
