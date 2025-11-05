@@ -1014,6 +1014,251 @@
     }
   }
 
+  // Export profiles
+  function exportProfiles() {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+      const profiles = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+      const envelope = createExportEnvelope(profiles.list);
+      const json = JSON.stringify(envelope, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `promptiply-profiles-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Profiles exported');
+      console.log('[promptiply] Exported', profiles.list.length, 'profiles');
+    });
+  }
+
+  // Import profiles modal
+  function showImportModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal modal-show';
+    modal.id = 'import-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-labelledby', 'import-modal-title');
+    modal.innerHTML = `
+      <div class="dialog">
+        <div class="title-flex">
+          <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+          <div id="import-modal-title">Import Profiles</div>
+        </div>
+        <div class="onboarding-section">
+          <div class="field">
+            <label for="import-url">From URL</label>
+            <input id="import-url" type="url" placeholder="https://example.com/profiles.json" aria-describedby="import-url-hint" />
+            <div id="import-url-hint" class="muted" style="font-size: 12px; margin-top: 4px;">Load profiles from a URL</div>
+          </div>
+          <div style="text-align: center; margin: 12px 0;">— or —</div>
+          <div class="field">
+            <label for="import-file">From File</label>
+            <input id="import-file" type="file" accept=".json" aria-describedby="import-file-hint" />
+            <div id="import-file-hint" class="muted" style="font-size: 12px; margin-top: 4px;">Upload a JSON file</div>
+          </div>
+          <div style="text-align: center; margin: 12px 0;">— or —</div>
+          <div class="field">
+            <label for="import-json">Paste JSON</label>
+            <textarea id="import-json" placeholder='{"schemaVersion":1,"profiles":[...]}' style="font-family: monospace; min-height: 100px;" aria-describedby="import-json-hint"></textarea>
+            <div id="import-json-hint" class="muted" style="font-size: 12px; margin-top: 4px;">Paste JSON data directly</div>
+          </div>
+          <div id="import-status" role="status" aria-live="polite" style="margin-top: 12px; min-height: 20px;"></div>
+        </div>
+        <div class="actions actions-space-between actions-top-margin">
+          <button id="import-cancel">Cancel</button>
+          <button id="import-execute" class="primary">Import</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Focus first input
+    setTimeout(() => document.getElementById('import-url')?.focus(), 100);
+    
+    // Wire up buttons
+    document.getElementById('import-cancel').addEventListener('click', () => {
+      modal.remove();
+    });
+    
+    document.getElementById('import-execute').addEventListener('click', () => {
+      executeImport(modal);
+    });
+    
+    // URL input handler
+    document.getElementById('import-url').addEventListener('input', (e) => {
+      if (e.target.value.trim()) {
+        document.getElementById('import-file').value = '';
+        document.getElementById('import-json').value = '';
+      }
+    });
+    
+    // File input handler
+    document.getElementById('import-file').addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        document.getElementById('import-url').value = '';
+        document.getElementById('import-json').value = '';
+      }
+    });
+    
+    // JSON textarea handler
+    document.getElementById('import-json').addEventListener('input', (e) => {
+      if (e.target.value.trim()) {
+        document.getElementById('import-url').value = '';
+        document.getElementById('import-file').value = '';
+      }
+    });
+  }
+
+  function executeImport(modal) {
+    const urlInput = document.getElementById('import-url');
+    const fileInput = document.getElementById('import-file');
+    const jsonInput = document.getElementById('import-json');
+    const statusEl = document.getElementById('import-status');
+    
+    statusEl.textContent = '';
+    statusEl.className = '';
+    
+    // Try URL first
+    if (urlInput.value.trim()) {
+      importFromURL(urlInput.value.trim(), statusEl, modal);
+      return;
+    }
+    
+    // Try file
+    if (fileInput.files.length > 0) {
+      importFromFile(fileInput.files[0], statusEl, modal);
+      return;
+    }
+    
+    // Try JSON
+    if (jsonInput.value.trim()) {
+      importFromJSON(jsonInput.value.trim(), statusEl, modal);
+      return;
+    }
+    
+    statusEl.textContent = 'Please provide a URL, file, or JSON data';
+    statusEl.style.color = '#f44336';
+  }
+
+  function importFromURL(url, statusEl, modal) {
+    statusEl.innerHTML = '<span role="status">Loading from URL...</span>';
+    statusEl.style.color = '#666';
+    
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        processImportData(data, statusEl, modal);
+      })
+      .catch(error => {
+        console.error('[promptiply] URL import failed:', error);
+        statusEl.innerHTML = `
+          <div style="color: #f44336;">
+            <strong>Failed to load from URL:</strong><br/>
+            ${escapeHtml(error.message)}<br/>
+            <span class="muted" style="font-size: 12px;">
+              This may be due to CORS restrictions. Try downloading the file and using "From File" instead, or paste the JSON directly.
+            </span>
+          </div>
+        `;
+      });
+  }
+
+  function importFromFile(file, statusEl, modal) {
+    statusEl.innerHTML = '<span role="status">Reading file...</span>';
+    statusEl.style.color = '#666';
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        processImportData(data, statusEl, modal);
+      } catch (error) {
+        statusEl.innerHTML = `<div style="color: #f44336;">Invalid JSON file: ${escapeHtml(error.message)}</div>`;
+      }
+    };
+    reader.onerror = () => {
+      statusEl.innerHTML = '<div style="color: #f44336;">Failed to read file</div>';
+    };
+    reader.readAsText(file);
+  }
+
+  function importFromJSON(json, statusEl, modal) {
+    try {
+      const data = JSON.parse(json);
+      processImportData(data, statusEl, modal);
+    } catch (error) {
+      statusEl.innerHTML = `<div style="color: #f44336;">Invalid JSON: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  function processImportData(data, statusEl, modal) {
+    try {
+      const profiles = parseImportEnvelope(data);
+      
+      if (!Array.isArray(profiles) || profiles.length === 0) {
+        statusEl.innerHTML = '<div style="color: #f44336;">No profiles found in import data</div>';
+        return;
+      }
+      
+      // Validate profiles have required fields
+      const invalid = profiles.filter(p => !p.name || typeof p.name !== 'string');
+      if (invalid.length > 0) {
+        statusEl.innerHTML = `<div style="color: #f44336;">Invalid profiles: ${invalid.length} profile(s) missing name</div>`;
+        return;
+      }
+      
+      // Import the profiles
+      chrome.storage.sync.get([STORAGE_PROFILES], (storageData) => {
+        const cur = storageData[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+        
+        // Add imported profiles (avoid duplicates by name)
+        let imported = 0;
+        let skipped = 0;
+        
+        profiles.forEach(prof => {
+          const exists = cur.list.find(p => p.name === prof.name);
+          if (exists) {
+            skipped++;
+            return;
+          }
+          
+          const id = `p_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+          cur.list.push({
+            id,
+            name: prof.name,
+            persona: prof.persona || '',
+            tone: prof.tone || '',
+            styleGuidelines: prof.styleGuidelines || [],
+            constraints: prof.constraints || [],
+            examples: prof.examples || [],
+            domainTags: prof.domainTags || [],
+            importedFromPredefined: prof.importedFromPredefined || false,
+            predefinedId: prof.predefinedId,
+            importedAt: new Date().toISOString()
+          });
+          imported++;
+        });
+        
+        chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+          renderProfiles(cur);
+          modal.remove();
+          showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`);
+          console.log('[promptiply] Import complete:', { imported, skipped });
+        });
+      });
+      
+    } catch (error) {
+      statusEl.innerHTML = `<div style="color: #f44336;">${escapeHtml(error.message)}</div>`;
+    }
+  }
+
   // Robust event binding
   function attachCoreListeners() {
     try {
@@ -1253,6 +1498,22 @@
         console.log("[promptiply] attachCoreListeners: bound restore-defaults");
       }
 
+      // Export profiles button
+      const exportBtn = document.getElementById("export-profiles");
+      if (exportBtn && !exportBtn.dataset.prAttached) {
+        exportBtn.addEventListener("click", exportProfiles);
+        exportBtn.dataset.prAttached = "1";
+        console.log("[promptiply] attachCoreListeners: bound export-profiles");
+      }
+
+      // Import profiles button
+      const importBtn = document.getElementById("import-profiles");
+      if (importBtn && !importBtn.dataset.prAttached) {
+        importBtn.addEventListener("click", showImportModal);
+        importBtn.dataset.prAttached = "1";
+        console.log("[promptiply] attachCoreListeners: bound import-profiles");
+      }
+
       const success = attachedAny && tabEls.length > 0;
       console.log("[promptiply] attachCoreListeners result:", { attachedAny, tabCount: tabEls.length, success });
       return success;
@@ -1333,6 +1594,26 @@
           console.log("[promptiply] delegated click: restore-defaults");
           try {
             showRestoreConfirmation();
+          } catch (e) {
+            console.error(e);
+          }
+          return;
+        }
+
+        if (target.closest("#export-profiles")) {
+          console.log("[promptiply] delegated click: export-profiles");
+          try {
+            exportProfiles();
+          } catch (e) {
+            console.error(e);
+          }
+          return;
+        }
+
+        if (target.closest("#import-profiles")) {
+          console.log("[promptiply] delegated click: import-profiles");
+          try {
+            showImportModal();
           } catch (e) {
             console.error(e);
           }
