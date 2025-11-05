@@ -6,10 +6,14 @@
   const STORAGE_ONBOARDING = "onboarding_completed";
   const STORAGE_SETTINGS = "settings";
   const STORAGE_PROFILES = "profiles";
+  const STORAGE_PREDEFINED = "predefined_profiles";
+  const SCHEMA_VERSION = 1;
 
   // State
   let isRecordingHotkey = false;
   let recordedHotkey = null;
+  let deletedProfilesUndo = null; // For undo functionality
+  let undoTimeout = null;
   let wizardState = {
     step: 1,
     editingId: null,
@@ -29,8 +33,8 @@
     profileTone: "",
   };
 
-  // Predefined profiles
-  const PREDEFINED_PROFILES = [
+  // Predefined profiles (loaded from storage or defaults)
+  let PREDEFINED_PROFILES = [
     {
       id: "builtin_writer",
       name: "Technical Writer",
@@ -95,6 +99,74 @@
     if (e.metaKey) parts.push("Meta");
     parts.push(e.key.length === 1 ? e.key.toUpperCase() : capitalize(e.key));
     return parts.join("+");
+  }
+
+  // Predefined profiles validation and persistence
+  function validatePredefinedArray(arr) {
+    if (!Array.isArray(arr)) return false;
+    return arr.every(p => 
+      p && 
+      typeof p === 'object' &&
+      typeof p.id === 'string' &&
+      typeof p.name === 'string' &&
+      p.id.length > 0 &&
+      p.name.length > 0
+    );
+  }
+
+  function loadPredefinedProfiles(callback) {
+    chrome.storage.local.get([STORAGE_PREDEFINED], (data) => {
+      if (data[STORAGE_PREDEFINED] && validatePredefinedArray(data[STORAGE_PREDEFINED])) {
+        PREDEFINED_PROFILES = data[STORAGE_PREDEFINED];
+        console.log('[promptiply] Loaded predefined profiles from storage');
+      } else {
+        // Use built-in defaults
+        console.log('[promptiply] Using built-in predefined profiles');
+        savePredefinedProfiles();
+      }
+      if (callback) callback();
+    });
+  }
+
+  function savePredefinedProfiles() {
+    chrome.storage.local.set({ [STORAGE_PREDEFINED]: PREDEFINED_PROFILES }, () => {
+      console.log('[promptiply] Saved predefined profiles to storage');
+    });
+  }
+
+  // Import/Export envelope with versioning
+  function createExportEnvelope(profiles) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      profiles: profiles
+    };
+  }
+
+  function parseImportEnvelope(data) {
+    try {
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      
+      // Handle versioned envelope
+      if (parsed.schemaVersion !== undefined) {
+        if (parsed.schemaVersion !== SCHEMA_VERSION) {
+          throw new Error(`Unsupported schema version: ${parsed.schemaVersion}. Expected ${SCHEMA_VERSION}.`);
+        }
+        if (!Array.isArray(parsed.profiles)) {
+          throw new Error('Invalid envelope: profiles must be an array');
+        }
+        return parsed.profiles;
+      }
+      
+      // Legacy format: array directly
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+      
+      throw new Error('Invalid import format');
+    } catch (e) {
+      throw new Error(`Failed to parse import data: ${e.message}`);
+    }
   }
 
   // Toast helper
@@ -776,15 +848,170 @@
         constraints: [],
         examples: [],
         domainTags: [],
+        // Metadata for tracking imports
+        importedFromPredefined: true,
+        predefinedId: pref.id,
+        importedAt: new Date().toISOString()
       };
       cur.list.push(newP);
       if (opts.activate && !cur.activeProfileId) cur.activeProfileId = newP.id;
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => renderProfiles(cur));
+      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+        renderProfiles(cur);
+        showToast(`Imported "${pref.name}"`);
+      });
     });
   }
 
   function importAllPredefined() {
     PREDEFINED_PROFILES.forEach((p) => importPredefinedProfile(p, { activate: false }));
+  }
+
+  // Restore Defaults with confirmation and undo
+  function showRestoreConfirmation() {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+      const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+      const toDelete = cur.list.filter(p => p.importedFromPredefined === true);
+      
+      if (toDelete.length === 0) {
+        showToast('No imported predefined profiles to restore');
+        return;
+      }
+
+      // Create confirmation modal
+      const modal = document.createElement('div');
+      modal.className = 'modal modal-show';
+      modal.id = 'restore-confirm-modal';
+      modal.innerHTML = `
+        <div class="dialog">
+          <div class="title-flex">
+            <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+            <div>Restore Defaults</div>
+          </div>
+          <div class="onboarding-section">
+            <p>This will remove <strong>${toDelete.length}</strong> imported predefined profile(s):</p>
+            <div class="list" style="max-height: 200px; overflow-y: auto; margin: 16px 0;">
+              ${toDelete.map(p => `
+                <div class="card" style="padding: 8px 12px; margin: 4px 0;">
+                  <div><strong>${escapeHtml(p.name)}</strong></div>
+                  <div class="muted" style="font-size: 12px;">${escapeHtml(p.persona || '')}</div>
+                </div>
+              `).join('')}
+            </div>
+            <p class="muted">You'll be able to undo this action for 10 seconds.</p>
+          </div>
+          <div class="actions actions-space-between actions-top-margin">
+            <button id="restore-cancel">Cancel</button>
+            <button id="restore-confirm" class="primary">Restore Defaults</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+      
+      // Wire up buttons
+      document.getElementById('restore-cancel').addEventListener('click', () => {
+        modal.remove();
+      });
+      
+      document.getElementById('restore-confirm').addEventListener('click', () => {
+        modal.remove();
+        restoreDefaults(toDelete);
+      });
+    });
+  }
+
+  function restoreDefaults(toDelete) {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+      const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+      
+      // Store for undo
+      deletedProfilesUndo = [...toDelete];
+      
+      // Remove imported profiles
+      const remaining = cur.list.filter(p => !p.importedFromPredefined);
+      const updated = {
+        list: remaining,
+        activeProfileId: remaining.some(p => p.id === cur.activeProfileId) ? cur.activeProfileId : (remaining[0]?.id || null)
+      };
+      
+      chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => {
+        renderProfiles(updated);
+        showUndoToast(toDelete.length);
+        console.log('[promptiply] Restored defaults, removed', toDelete.length, 'profiles');
+      });
+    });
+  }
+
+  function showUndoToast(count) {
+    // Clear any existing undo timeout
+    if (undoTimeout) {
+      clearTimeout(undoTimeout);
+      undoTimeout = null;
+    }
+
+    const container = ensureToastContainer();
+    const el = document.createElement('div');
+    el.className = 'toast-undo';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML = `
+      <span>Removed ${count} profile(s)</span>
+      <button id="undo-restore" style="margin-left: 12px; padding: 4px 8px; background: #fff; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Undo</button>
+    `;
+    el.style.background = 'rgba(0,0,0,0.85)';
+    el.style.color = '#fff';
+    el.style.padding = '12px 16px';
+    el.style.borderRadius = '6px';
+    el.style.marginTop = '6px';
+    el.style.fontSize = '14px';
+    el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    
+    container.appendChild(el);
+    
+    // Wire up undo button
+    document.getElementById('undo-restore').addEventListener('click', () => {
+      undoRestore();
+      el.remove();
+    });
+    
+    // Auto-remove after 10 seconds
+    undoTimeout = setTimeout(() => {
+      try {
+        el.remove();
+        deletedProfilesUndo = null;
+      } catch (_) {}
+    }, 10000);
+  }
+
+  function undoRestore() {
+    if (!deletedProfilesUndo || deletedProfilesUndo.length === 0) {
+      showToast('Nothing to undo');
+      return;
+    }
+    
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+      const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
+      
+      // Restore deleted profiles
+      const updated = {
+        list: [...cur.list, ...deletedProfilesUndo],
+        activeProfileId: cur.activeProfileId
+      };
+      
+      chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => {
+        renderProfiles(updated);
+        showToast(`Restored ${deletedProfilesUndo.length} profile(s)`);
+        console.log('[promptiply] Undo restore: added back', deletedProfilesUndo.length, 'profiles');
+        deletedProfilesUndo = null;
+      });
+    });
+    
+    if (undoTimeout) {
+      clearTimeout(undoTimeout);
+      undoTimeout = null;
+    }
   }
 
   // Robust event binding
@@ -1018,6 +1245,14 @@
         importAllBtn.dataset.prAttached = "1";
       }
 
+      // Restore Defaults button
+      const restoreBtn = document.getElementById("restore-defaults");
+      if (restoreBtn && !restoreBtn.dataset.prAttached) {
+        restoreBtn.addEventListener("click", showRestoreConfirmation);
+        restoreBtn.dataset.prAttached = "1";
+        console.log("[promptiply] attachCoreListeners: bound restore-defaults");
+      }
+
       const success = attachedAny && tabEls.length > 0;
       console.log("[promptiply] attachCoreListeners result:", { attachedAny, tabCount: tabEls.length, success });
       return success;
@@ -1093,6 +1328,16 @@
           }
           return;
         }
+
+        if (target.closest("#restore-defaults")) {
+          console.log("[promptiply] delegated click: restore-defaults");
+          try {
+            showRestoreConfirmation();
+          } catch (e) {
+            console.error(e);
+          }
+          return;
+        }
       } catch (e) {
         /* ignore */
       }
@@ -1128,7 +1373,10 @@
     renderProfiles(p);
   });
 
-  renderPredefinedProfiles();
+  // Load predefined profiles from storage, then render
+  loadPredefinedProfiles(() => {
+    renderPredefinedProfiles();
+  });
 
   // Display version
   const versionEl = document.getElementById("version");
