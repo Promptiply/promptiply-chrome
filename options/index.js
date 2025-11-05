@@ -175,10 +175,7 @@
     if (!c) {
       c = document.createElement("div");
       c.id = "pr-toast-container";
-      c.style.position = "fixed";
-      c.style.right = "16px";
-      c.style.bottom = "16px";
-      c.style.zIndex = "99999";
+      c.className = "toast-container";
       document.body.appendChild(c);
     }
     return c;
@@ -189,13 +186,7 @@
       const c = ensureToastContainer();
       const el = document.createElement("div");
       el.textContent = msg;
-      el.style.background = "rgba(0,0,0,0.7)";
-      el.style.color = "#fff";
-      el.style.padding = "8px 12px";
-      el.style.borderRadius = "6px";
-      el.style.marginTop = "6px";
-      el.style.fontSize = "12px";
-      el.style.boxShadow = "0 2px 8px rgba(0,0,0,0.4)";
+      el.className = "toast-message";
       c.appendChild(el);
       setTimeout(() => {
         try {
@@ -1122,8 +1113,6 @@
             const statusEl = document.createElement('p');
             statusEl.className = 'muted modal-text-muted-small export-error-message';
             statusEl.textContent = 'Please select at least one profile to export';
-            statusEl.style.color = '#f44336';
-            statusEl.style.marginTop = '12px';
             const actionsDiv = modal.querySelector('.actions');
             if (actionsDiv && actionsDiv.parentNode) {
               actionsDiv.parentNode.insertBefore(statusEl, actionsDiv);
@@ -1225,14 +1214,12 @@
           if (jsonInput) jsonInput.value = '';
           if (fileDisplay) {
             fileDisplay.textContent = e.target.files[0].name;
-            fileDisplay.style.color = 'var(--text)';
-            fileDisplay.style.fontWeight = '500';
+            fileDisplay.className = 'muted modal-hint-text file-display-selected';
           }
         } else {
           if (fileDisplay) {
             fileDisplay.textContent = 'No file selected';
-            fileDisplay.style.color = '';
-            fileDisplay.style.fontWeight = '';
+            fileDisplay.className = 'muted modal-hint-text';
           }
         }
       });
@@ -1246,8 +1233,7 @@
           if (fileInput) fileInput.value = '';
           if (fileDisplay) {
             fileDisplay.textContent = 'No file selected';
-            fileDisplay.style.color = '';
-            fileDisplay.style.fontWeight = '';
+            fileDisplay.className = 'muted modal-hint-text';
           }
           const jsonInput = document.getElementById('import-json-textarea');
           if (jsonInput) jsonInput.value = '';
@@ -1264,8 +1250,7 @@
           if (fileInput) fileInput.value = '';
           if (fileDisplay) {
             fileDisplay.textContent = 'No file selected';
-            fileDisplay.style.color = '';
-            fileDisplay.style.fontWeight = '';
+            fileDisplay.className = 'muted modal-hint-text';
           }
         }
       });
@@ -1321,13 +1306,13 @@
     
     if (statusEl) {
       statusEl.textContent = 'Please provide a URL, file, or JSON data';
-      statusEl.style.color = '#f44336';
+      statusEl.className = 'modal-status-box status-error';
     }
   }
 
   function importFromURL(url, statusEl, modal) {
     statusEl.innerHTML = '<span role="status">Loading from URL...</span>';
-    statusEl.style.color = '#666';
+    statusEl.className = 'modal-status-box status-loading';
     
     fetch(url)
       .then(response => {
@@ -1342,10 +1327,10 @@
       .catch(error => {
         console.error('[promptiply] URL import failed:', error);
         statusEl.innerHTML = `
-          <div style="color: #f44336;">
+          <div class="status-error">
             <strong>Failed to load from URL:</strong><br/>
             ${escapeHtml(error.message)}<br/>
-            <span class="muted" style="font-size: 12px;">
+            <span class="muted modal-hint-text">
               This may be due to CORS restrictions. Try downloading the file and using "From File" instead, or paste the JSON directly.
             </span>
           </div>
@@ -1355,7 +1340,7 @@
 
   function importFromFile(file, statusEl, modal) {
     statusEl.innerHTML = '<span role="status">Reading file...</span>';
-    statusEl.style.color = '#666';
+    statusEl.className = 'modal-status-box status-loading';
     
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -1363,11 +1348,11 @@
         const data = JSON.parse(e.target.result);
         processImportData(data, statusEl, modal);
       } catch (error) {
-        statusEl.innerHTML = `<div style="color: #f44336;">Invalid JSON file: ${escapeHtml(error.message)}</div>`;
+        statusEl.innerHTML = `<div class="status-error">Invalid JSON file: ${escapeHtml(error.message)}</div>`;
       }
     };
     reader.onerror = () => {
-      statusEl.innerHTML = '<div style="color: #f44336;">Failed to read file</div>';
+      statusEl.innerHTML = '<div class="status-error">Failed to read file</div>';
     };
     reader.readAsText(file);
   }
@@ -1377,7 +1362,7 @@
       const data = JSON.parse(json);
       processImportData(data, statusEl, modal);
     } catch (error) {
-      statusEl.innerHTML = `<div style="color: #f44336;">Invalid JSON: ${escapeHtml(error.message)}</div>`;
+      statusEl.innerHTML = `<div class="status-error">Invalid JSON: ${escapeHtml(error.message)}</div>`;
     }
   }
 
@@ -1386,14 +1371,14 @@
       const profiles = parseImportEnvelope(data);
       
       if (!Array.isArray(profiles) || profiles.length === 0) {
-        statusEl.innerHTML = '<div style="color: #f44336;">No profiles found in import data</div>';
+        statusEl.innerHTML = '<div class="status-error">No profiles found in import data</div>';
         return;
       }
       
       // Validate profiles have required fields
       const invalid = profiles.filter(p => !p.name || typeof p.name !== 'string');
       if (invalid.length > 0) {
-        statusEl.innerHTML = `<div style="color: #f44336;">Invalid profiles: ${invalid.length} profile(s) missing name</div>`;
+        statusEl.innerHTML = `<div class="status-error">Invalid profiles: ${invalid.length} profile(s) missing name</div>`;
         return;
       }
       
@@ -1438,7 +1423,7 @@
       });
       
     } catch (error) {
-      statusEl.innerHTML = `<div style="color: #f44336;">${escapeHtml(error.message)}</div>`;
+      statusEl.innerHTML = `<div class="status-error">${escapeHtml(error.message)}</div>`;
     }
   }
 
