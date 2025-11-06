@@ -222,7 +222,9 @@ async function refineWithOpenAI({ system, user, settings }) {
     }
     
     console.log('[promptiply:bg] OpenAI response (json mode)', { length: text.length });
+    receive_tags(text.trim())
     return text.trim();
+
   } catch (e) {
     if (e.message && e.message.includes('OpenAI API error')) {
       throw e;
@@ -329,7 +331,7 @@ async function refineWithAnthropic({ system, user, settings }) {
     if (!text || !text.trim()) {
       throw new Error('Empty response from Anthropic API');
     }
-    
+    receive_tags(text.trim())
     return text.trim();
   } catch (e) {
     if (e.message && e.message.includes('Anthropic API error')) {
