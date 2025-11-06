@@ -301,6 +301,13 @@ function matchesHotkey(e, combo) {
         } catch(_) {}
       }
     };
+    
+    // Position update for scroll/resize (bypasses debouncing for better responsiveness)
+    const updatePosition = () => {
+      if (floatUi && observedInput) {
+        positionFloatingUI(floatUi, observedInput);
+      }
+    };
 
     // Initial attempt + observe
     update();
@@ -313,8 +320,9 @@ function matchesHotkey(e, combo) {
     });
     // Observe only childList changes, not attributes (less aggressive)
     mo.observe(document.documentElement, { subtree: true, childList: true });
-    window.addEventListener('scroll', update, true);
-    window.addEventListener('resize', update);
+    // Use direct position update for scroll/resize to ensure button stays correctly positioned
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
     // Also poll briefly during first seconds to catch late mounts
     let tries = 0;
     const iv = setInterval(() => { tries++; update(); if (tries > 60) clearInterval(iv); }, 250);
