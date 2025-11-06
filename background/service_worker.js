@@ -222,7 +222,6 @@ async function refineWithOpenAI({ system, user, settings }) {
     }
     
     console.log('[promptiply:bg] OpenAI response (json mode)', { length: text.length });
-    receive_tags(text.trim())
     return text.trim();
 
   } catch (e) {
@@ -331,7 +330,6 @@ async function refineWithAnthropic({ system, user, settings }) {
     if (!text || !text.trim()) {
       throw new Error('Empty response from Anthropic API');
     }
-    receive_tags(text.trim())
     return text.trim();
   } catch (e) {
     if (e.message && e.message.includes('Anthropic API error')) {
@@ -427,8 +425,7 @@ async function refineViaWebUI({ site, system, user }) {
       isEmpty: !finalResult || finalResult.trim().length === 0,
       site
     });
-    receive_tags(finalResult)
-    return finalResult;
+    return await receive_tags(finalResult)
   } catch (e) {
     console.error('[promptiply:bg] WebUI outer error:', e);
     // Ensure tab is closed even on outer error
@@ -447,6 +444,7 @@ async function refineViaWebUI({ site, system, user }) {
 
 async function receive_tags(result){
   const new_tags = [...result.matchAll(/#promptiply_tag_([A-Za-z0-9_-]+)/g)].map(match => match[1].toLowerCase().replace(' ','_'));
+  new_result = result.replace(/#promptiply_tag_([A-Za-z0-9_-]+)/g, '');
   const profiles = await new Promise((resolve) => {
     chrome.storage.sync.get(['profiles'], (data) => {
       resolve(data.profiles);
@@ -457,7 +455,7 @@ async function receive_tags(result){
   activeProfile.domainTags = Array.from(tags_set);
   const updated = { ...profiles, activeProfileId: activeProfile.id };
   chrome.storage.sync.set({ [STORAGE_PROFILES]: updated });
-  
+  return new_result;
 }
 
 async function waitForTabComplete(tabId) {
