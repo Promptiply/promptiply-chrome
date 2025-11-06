@@ -132,13 +132,13 @@ function matchesHotkey(e, combo) {
     return new Promise((resolve) => {
       // If document is already complete, wait a bit more
       if (document.readyState === 'complete') {
-        setTimeout(resolve, 500);
+        setTimeout(resolve, 300); // Reduced from 500ms to 300ms
         return;
       }
       
       // Otherwise wait for load event
       window.addEventListener('load', () => {
-        setTimeout(resolve, 500);
+        setTimeout(resolve, 300); // Reduced from 500ms to 300ms
       }, { once: true });
     });
   }
@@ -323,15 +323,25 @@ function matchesHotkey(e, combo) {
     // Use direct position update for scroll/resize to ensure button stays correctly positioned
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
-    // Also poll briefly during first seconds to catch late mounts
+    // Also poll more aggressively during first seconds to catch late mounts
     let tries = 0;
-    const iv = setInterval(() => { tries++; update(); if (tries > 60) clearInterval(iv); }, 250);
+    const iv = setInterval(() => { 
+      tries++; 
+      update(); 
+      if (tries > 80) clearInterval(iv);
+    }, 150); // More frequent polling: every 150ms for up to 12 seconds
   }
 
   async function tryRefine(adapter) {
     const raw = adapter.readInput();
     if (!raw || !raw.trim()) {
-      try { console.warn('[promptiply] Refine hotkey used but no prompt detected (empty input).'); } catch(_) {}
+      try { 
+        console.warn('[promptiply] Refine triggered but no prompt text found.');
+        console.debug('[promptiply] Input element search:', {
+          found: !!adapter.findInput(),
+          inputElement: adapter.findInput()
+        });
+      } catch(_) {}
       return;
     }
     try { console.log('[promptiply] Sending refinement request', { len: raw.length, preview: raw.slice(0,100) }); } catch(_) {}
@@ -580,7 +590,13 @@ function positionFloatingUI(host, inputEl) {
     else if (rightHalf && !bottomHalf) host.classList.add('pr-pos-tr');
     else if (!rightHalf && bottomHalf) host.classList.add('pr-pos-bl');
     else host.classList.add('pr-pos-tl');
-    try { console.debug('[promptiply] Positioning refine button rect', rect); } catch(_) {}
+    try { 
+      console.debug('[promptiply] Positioned button:', {
+        position: rightHalf ? (bottomHalf ? 'bottom-right' : 'top-right') : (bottomHalf ? 'bottom-left' : 'top-left'),
+        inputRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        windowSize: { width: window.innerWidth, height: window.innerHeight }
+      });
+    } catch(_) {}
   } catch (_) {}
 }
 
