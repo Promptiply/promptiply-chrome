@@ -6,7 +6,8 @@
   <title>promptiply Settings</title>
   <link rel="icon" type="image/png" href="../icons/icon-48.png" />
   <link rel="stylesheet" href="styles.css" />
-  <script defer src="index.js"></script>
+  <!-- Options loader: tries index.js, falls back to index-fix.js on error -->
+  <script defer src="index-loader.js"></script>
 </head>
 <body>
   <div class="container">
@@ -15,7 +16,9 @@
         <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
         promptiply — Settings
       </div>
-      <div class="muted" id="version">-</div>
+  <div class="header-controls">
+        <div class="muted" id="version">-</div>
+      </div>
     </div>
     <div class="tabs">
       <div class="tab active" data-tab="general">General</div>
@@ -55,6 +58,7 @@
       </div>
       <div class="actions actions-top-margin">
         <button id="save-settings" class="primary">Save Settings</button>
+        <button id="run-onboarding" class="secondary">Run Onboarding Wizard</button>
       </div>
     </div>
 
@@ -91,6 +95,9 @@
 
     <div class="panel tab-panel-hidden" id="tab-profiles">
       <div class="actions actions-flex-end">
+        <button id="export-profiles" class="secondary">Export Profiles</button>
+        <button id="import-profiles" class="secondary">Import Profiles</button>
+        <button id="restore-defaults" class="secondary">Restore Defaults</button>
         <button id="new-profile" class="primary">New Profile</button>
       </div>
       <div id="profiles-list" class="list"></div>
@@ -98,9 +105,14 @@
 
     <p class="muted muted-top-margin">Your API keys are stored locally on this device. Profiles sync across Chrome if enabled.</p>
     
-    <!-- Profile Wizard Modal -->
+    <!-- Profile Wizard Modal (used by New Profile / Create Profile) -->
     <div class="modal" id="profile-modal">
       <div class="dialog">
+        <div class="title-flex">
+          <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+          <div class="profile-wizard-title">Profile Wizard</div>
+        </div>
+        <div class="progress-wrap"><div class="wizard-progress" id="wizard-progress"></div></div>
         <div class="steps">
           <div class="step" data-step="1">Basics</div>
           <div class="step" data-step="2">Guidelines</div>
@@ -119,8 +131,36 @@
         </div>
       </div>
     </div>
-  </div>
+
+    <!-- Onboarding Wizard Modal (rich) -->
+    <div class="modal" id="onboarding-modal">
+      <div class="dialog onboarding-dialog">
+        <div class="onboarding-header">
+          <img src="../icons/icon-48.png" alt="promptiply" class="icon-48" />
+          <h2>Welcome to promptiply!</h2>
+        </div>
+        <div class="steps">
+          <div class="step" data-step="1">Modes</div>
+          <div class="step" data-step="2">Setup</div>
+          <div class="step" data-step="3">Profile</div>
+          <div class="step" data-step="4">Ready</div>
+        </div>
+        <div id="onboarding-body"></div>
+        <div class="actions actions-space-between actions-top-margin">
+          <div>
+            <button id="onboarding-skip">Skip</button>
+          </div>
+          <div>
+            <button id="onboarding-back">Back</button>
+            <button id="onboarding-next" class="primary">Next</button>
+            <button id="onboarding-finish" class="primary wizard-save-hidden">Get Started</button>
+          </div>
+        </div>
+      </div>
+    </div>
 </body>
 </html>
+
+
 
 

@@ -11,7 +11,7 @@ async function loadMLCHandler() {
   if (ExtensionServiceWorkerMLCEngineHandler) {
     return ExtensionServiceWorkerMLCEngineHandler;
   }
-  
+
   try {
     console.log('[promptiply:bg] Loading web-llm handler...');
     // Import the handler module dynamically
@@ -38,18 +38,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (sender?.tab?.id) {
       activeRefinementTabId = sender.tab.id;
     }
-    
+
     handleRefinement(msg.payload, sender).then((res) => {
       activeRefinementTabId = null;
+      console.log('[promptiply:bg] Sending response back to content script:', {
+        ok: true,
+        status: 'ok',
+        refinedLength: res?.length || 0,
+        refinedPreview: res?.slice(0, 100)
+      });
       sendResponse({ ok: true, status: 'ok', refined: res });
     }).catch((err) => {
       activeRefinementTabId = null;
       console.error('[promptiply:bg] Refinement error:', err);
-      sendResponse({ ok: false, err: String(err.message || err) });
+      sendResponse({ ok: false, err: String(err.message || err), error: String(err.message || err) });
     });
     return true; // Keep channel open for async response
   }
-  
+
   // Relay progress updates from offscreen to content script
   if (msg && msg.type === 'PR_LOCAL_PROGRESS') {
     if (activeRefinementTabId) {
@@ -75,10 +81,47 @@ chrome.commands.onCommand.addListener((cmd) => {
   }
 });
 
+// Open options page on first install to start onboarding
+try {
+  chrome.runtime.onInstalled.addListener((details) => {
+    try {
+      if (details && details.reason === 'install') {
+        console.log('[promptiply:bg] First install detected - opening onboarding');
+        // Create sensible default profile(s) in sync storage if none exist
+        try {
+          chrome.storage.sync.get(['profiles'], (data) => {
+            const existing = data && data.profiles;
+            if (!existing || !existing.list || existing.list.length === 0) {
+              const defaultProfile = {
+                id: 'default',
+                name: 'Default',
+                persona: 'General assistant',
+                instructions: 'Be concise, ask clarifying questions when needed.',
+                temperature: 0.2,
+              };
+              const payload = { list: [defaultProfile], activeProfileId: 'default' };
+              chrome.storage.sync.set({ profiles: payload }, () => {
+                console.log('[promptiply:bg] Default profile created on install');
+              });
+            }
+          });
+        } catch (e) {
+          console.warn('[promptiply:bg] Failed to create default profiles:', e);
+        }
+
+        chrome.tabs.create({ url: chrome.runtime.getURL('options/index.html?onboard=1') }).catch(() => {});
+      }
+    } catch (e) {
+      console.error('[promptiply:bg] onInstalled handler error:', e);
+    }
+  });
+} catch (e) {
+  // Some environments may not allow setting onInstalled here — ignore safely
+}
 async function handleRefinement(payload, sender) {
   const { prompt } = payload || {};
   console.log('[promptiply:bg] Received refinement request', { hasPayload: !!payload, promptPreview: prompt?.slice(0, 100) });
-  
+
   if (!prompt || !prompt.trim()) {
     throw new Error('No prompt provided');
   }
@@ -92,7 +135,7 @@ async function handleRefinement(payload, sender) {
 
   const mode = settings.mode || 'api';
   const provider = settings.provider || 'openai';
-  
+
   // Detect site from sender URL
   const senderUrl = sender?.tab?.url || '';
   let site = null;
@@ -139,7 +182,7 @@ async function handleRefinement(payload, sender) {
 async function refineWithOpenAI({ system, user, settings }) {
   const apiKey = settings.openaiKey;
   const model = settings.openaiModel || 'gpt-5-nano';
-  
+
   if (!apiKey) {
     throw new Error('OpenAI API key not configured');
   }
@@ -180,12 +223,12 @@ async function refineWithOpenAI({ system, user, settings }) {
     if (!res.ok) {
       const errBody = await res.text();
       console.error('[promptiply:bg] OpenAI HTTP error (json mode)', res.status, errBody);
-      
+
       // If 400 error, retry without response_format
       if (res.status === 400) {
         console.log('[promptiply:bg] Retrying OpenAI without response_format');
         delete requestBody.response_format;
-        
+
         const retryRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -212,7 +255,7 @@ async function refineWithOpenAI({ system, user, settings }) {
 
     const data = await res.json();
     let text = data.choices?.[0]?.message?.content || '';
-    
+
     // Try to parse JSON if it's JSON mode
     try {
       const parsed = JSON.parse(text);
@@ -220,7 +263,7 @@ async function refineWithOpenAI({ system, user, settings }) {
     } catch (_) {
       // Not JSON, use as-is
     }
-    
+
     console.log('[promptiply:bg] OpenAI response (json mode)', { length: text.length });
     return text.trim();
 
@@ -236,7 +279,7 @@ async function refineWithOpenAI({ system, user, settings }) {
 async function refineWithAnthropic({ system, user, settings }) {
   const apiKey = settings.anthropicKey;
   const model = settings.anthropicModel || 'claude-haiku-4-5';
-  
+
   if (!apiKey) {
     throw new Error('Anthropic API key not configured');
   }
@@ -285,7 +328,7 @@ async function refineWithAnthropic({ system, user, settings }) {
     if (!res.ok) {
       const errBody = await res.text();
       console.error('[promptiply:bg] Anthropic HTTP error', res.status, errBody);
-      
+
       let errorMessage = `Anthropic API error: ${res.status}`;
       try {
         const errJson = JSON.parse(errBody);
@@ -293,7 +336,7 @@ async function refineWithAnthropic({ system, user, settings }) {
       } catch (_) {
         errorMessage += ` - ${errBody}`;
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -307,7 +350,7 @@ async function refineWithAnthropic({ system, user, settings }) {
     //   ...
     // }
     let text = '';
-    
+
     if (data.content && Array.isArray(data.content)) {
       // Extract text from all text content blocks
       const textBlocks = data.content
@@ -321,12 +364,12 @@ async function refineWithAnthropic({ system, user, settings }) {
       text = data.text;
     }
     
-    console.log('[promptiply:bg] Anthropic response', { 
-      length: text.length, 
+    console.log('[promptiply:bg] Anthropic response', {
+      length: text.length,
       contentBlocks: data.content?.length || 0,
-      preview: text.slice(0, 100) 
+      preview: text.slice(0, 100)
     });
-    
+
     if (!text || !text.trim()) {
       throw new Error('Empty response from Anthropic API');
     }
@@ -344,17 +387,17 @@ async function refineViaWebUI({ site, system, user }) {
   const url = site === 'claude' ? 'https://claude.ai/' : 'https://chat.openai.com/';
   const composed = `${system}\n\nRefine this prompt. Output only refined prompt.\n---\n${user}`;
   let previousActiveTabId = null;
-  
+
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     previousActiveTabId = activeTab?.id || null;
   } catch (_) {}
 
   const tab = await chrome.tabs.create({ url, active: false });
-  
+
   try {
     await waitForTabComplete(tab.id);
-    
+
     if (site === 'claude') {
       await chrome.tabs.update(tab.id, { active: true });
       await new Promise(r => setTimeout(r, 1500));
@@ -388,15 +431,20 @@ async function refineViaWebUI({ site, system, user }) {
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('WebUI automation timeout')), 60000);
       });
-      
+
       const [{ result: automationResult }] = await Promise.race([scriptPromise, timeoutPromise]);
       result = automationResult || '';
-      console.log('[promptiply:bg] WebUI result received', { 
-        length: result.length, 
+      console.log('[promptiply:bg] WebUI result received', {
+        length: result.length,
         preview: result.slice(0, 200),
         isEmpty: !result || result.trim().length === 0,
         site
       });
+
+      // Add a small delay to ensure the result is fully captured before closing the tab
+      await new Promise(r => setTimeout(r, 500));
+      console.log('[promptiply:bg] Waited 500ms before closing tab to ensure result is captured');
+
     } catch (e) {
       console.error('[promptiply:bg] WebUI automation error:', e);
       result = '';
@@ -419,12 +467,19 @@ async function refineViaWebUI({ site, system, user }) {
       }
     }
     const finalResult = result || '';
-    console.log('[promptiply:bg] refineViaWebUI returning result', { 
-      length: finalResult.length, 
+    console.log('[promptiply:bg] refineViaWebUI returning result', {
+      length: finalResult.length,
       preview: finalResult.slice(0, 200),
       isEmpty: !finalResult || finalResult.trim().length === 0,
       site
     });
+    
+    // If we got an empty result, return the original prompt as fallback
+    if (!finalResult || finalResult.trim().length === 0) {
+      console.warn('[promptiply:bg] WebUI automation returned empty result, using original prompt as fallback');
+      return user; // Return the original user prompt
+    }
+
     return await receive_tags(finalResult)
   } catch (e) {
     console.error('[promptiply:bg] WebUI outer error:', e);
@@ -472,19 +527,24 @@ async function waitForTabComplete(tabId) {
 
 async function automateRefinement(site, composed) {
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-  
+
   async function sendAndReadChatGPT() {
     try {
       console.log('[promptiply:webui] ChatGPT automation starting, composed length:', composed.length);
-      
+
       // Wait for page to be ready (ChatGPT tab may be in background)
       await delay(1000);
-      
+
       // Try ChatGPT input selectors - can be textarea or contenteditable
+      // Updated selectors for latest ChatGPT UI (as of 2025)
       const selectors = [
-        '#prompt-textarea.ProseMirror[contenteditable="true"]',
-        '#prompt-textarea[contenteditable="true"]',
+        '#prompt-textarea',
+        'div[contenteditable="true"][data-id="root"]',
+        '#composer-background textarea',
         '.ProseMirror[contenteditable="true"]',
+        '[data-testid="composer-input"]',
+        'textarea[placeholder*="Message"]',
+        'div[contenteditable="true"]',
         'textarea[data-id]',
         'textarea'
       ];
@@ -499,11 +559,11 @@ async function automateRefinement(site, composed) {
       }
       console.log('[promptiply:webui] Found ChatGPT input:', input ? input.tagName || input.className : 'NOT FOUND');
       if (!input) return '';
-      
+
       // Clear and insert text
       input.focus();
       await delay(50);
-      
+
       if ('value' in input) {
         // textarea
         input.value = '';
@@ -527,17 +587,30 @@ async function automateRefinement(site, composed) {
         }
       }
       await delay(200);
-      
-      // Find and click send button
+
+      // Find and click send button - Updated selectors for latest ChatGPT UI
       let sendBtn = null;
-      sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label*="Send"], form button[type="submit"]');
+      const sendBtnSelectors = [
+        'button[data-testid="send-button"]',
+        'button[data-testid="composer-send-button"]',
+        'button[aria-label="Send message"]',
+        'button[aria-label*="Send"]',
+        'button.absolute.rounded-lg',
+        'form button[type="submit"]'
+      ];
+
+      for (const sel of sendBtnSelectors) {
+        sendBtn = document.querySelector(sel);
+        if (sendBtn && !sendBtn.disabled) break;
+      }
+
       if (!sendBtn) {
         const form = input.closest('form');
         if (form) sendBtn = form.querySelector('button[type="submit"], button:not([disabled])');
       }
-      
+
       console.log('[promptiply:webui] Found ChatGPT send button:', sendBtn ? 'YES' : 'NOT FOUND');
-      
+
       if (sendBtn && !sendBtn.disabled) {
         sendBtn.click();
         console.log('[promptiply:webui] Clicked ChatGPT send button');
@@ -553,17 +626,17 @@ async function automateRefinement(site, composed) {
         input.dispatchEvent(enterEvent);
         console.log('[promptiply:webui] Triggered Enter key for ChatGPT');
       }
-      
+
       await delay(300);
-      
+
       // Wait for assistant response
       let content = '';
       let stableCount = 0;
       const composedStart = composed.slice(0, 50).toLowerCase();
-      
+
       for (let i = 0; i < 120; i++) { // up to ~30s max
         await delay(250);
-        
+
         // ChatGPT assistant messages
         const msgs = Array.from(document.querySelectorAll(
           '[data-message-author-role="assistant"], ' +
@@ -571,7 +644,7 @@ async function automateRefinement(site, composed) {
           '[data-testid*="message"][data-message-author-role="assistant"], ' +
           'div[data-message-author-role="assistant"]'
         ));
-        
+
         const last = msgs[msgs.length - 1];
         if (last) {
           const txt = (last.innerText || last.textContent || '').trim();
@@ -590,14 +663,14 @@ async function automateRefinement(site, composed) {
             }
           }
         }
-        
+
         // Check if still typing
         const typing = document.querySelector('[data-testid="typing"], [class*="typing"], [aria-label*="typing"]');
         if (!typing && content && content.length > 30 && stableCount >= 2) {
           console.log('[promptiply:webui] ChatGPT response complete (no typing, stable)');
           break;
         }
-        
+
         // Timeout after max iterations
         if (i === 119 && content) {
           console.log('[promptiply:webui] ChatGPT timeout reached, using current content');
@@ -605,7 +678,7 @@ async function automateRefinement(site, composed) {
           console.log('[promptiply:webui] ChatGPT timeout reached, NO content found');
         }
       }
-      
+
       const finalResult = content.trim();
       console.log('[promptiply:webui] Final ChatGPT result:', { length: finalResult.length, preview: finalResult.slice(0, 100) });
       return finalResult;
@@ -618,14 +691,18 @@ async function automateRefinement(site, composed) {
   async function sendAndReadClaude() {
     try {
       console.log('[promptiply:webui] Claude automation starting, composed length:', composed.length);
-      
+
       // Wait briefly for page to be ready (we already waited 1.5s after activation)
       await delay(300);
-      
+
       // Try Claude's ProseMirror input first, then fallback
+      // Updated selectors for latest Claude UI (as of 2025)
       const selectors = [
-        '.ProseMirror[contenteditable="true"]',
+        'div.ProseMirror[contenteditable="true"]',
+        'div[contenteditable="true"][placeholder*="Reply"]',
+        'div[contenteditable="true"][data-placeholder]',
         '[contenteditable="true"][role="textbox"]',
+        '.ProseMirror[contenteditable="true"]',
         '[contenteditable="true"]'
       ];
       let input = null;
@@ -639,11 +716,11 @@ async function automateRefinement(site, composed) {
       }
       console.log('[promptiply:webui] Found input:', input ? input.id || input.className : 'NOT FOUND');
       if (!input) return '';
-      
+
       // Focus and clear
       input.focus();
       await delay(50);
-      
+
       // Select all content
       const range = document.createRange();
       range.selectNodeContents(input);
@@ -651,13 +728,13 @@ async function automateRefinement(site, composed) {
       sel.removeAllRanges();
       sel.addRange(range);
       await delay(30);
-      
+
       // Delete existing content
       try {
         document.execCommand('delete', false);
       } catch (_) {}
       await delay(30);
-      
+
       // Insert our composed message
       console.log('[promptiply:webui] Inserting composed text, length:', composed.length);
       try {
@@ -669,21 +746,21 @@ async function automateRefinement(site, composed) {
         input.dispatchEvent(event);
       }
       await delay(200);
-      
+
       // Verify text was inserted
       const insertedText = input.innerText || input.textContent || '';
       console.log('[promptiply:webui] Text after insertion:', insertedText.length, 'chars, starts with:', insertedText.slice(0, 50));
-      
+
       // Find send button - try multiple approaches
       let sendBtn = null;
-      
+
       // Method 1: Look for button with send-related text/aria
       sendBtn = Array.from(document.querySelectorAll('button')).find(b => {
         const txt = (b.textContent || '').toLowerCase();
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
         return /send|submit/.test(txt) || /send/.test(aria);
       });
-      
+
       // Method 2: Look for button near the input
       if (!sendBtn) {
         const inputContainer = input.closest('form, div[class*="composer"], div[class*="input"]');
@@ -691,21 +768,21 @@ async function automateRefinement(site, composed) {
           sendBtn = inputContainer.querySelector('button[type="submit"], button:not([disabled])');
         }
       }
-      
+
       // Method 3: Look for any enabled button that might be send
       if (!sendBtn) {
         sendBtn = document.querySelector('button:not([disabled])');
       }
-      
+
       console.log('[promptiply:webui] Found send button:', sendBtn ? (sendBtn.textContent || sendBtn.className) : 'NOT FOUND');
-      
+
       if (sendBtn && !sendBtn.disabled) {
         sendBtn.click();
         console.log('[promptiply:webui] Clicked send button');
       } else {
         // Fallback: try Enter key combo
-        const enterEvent = new KeyboardEvent('keydown', { 
-          key: 'Enter', 
+        const enterEvent = new KeyboardEvent('keydown', {
+          key: 'Enter',
           code: 'Enter',
           keyCode: 13,
           which: 13,
@@ -715,21 +792,21 @@ async function automateRefinement(site, composed) {
         input.dispatchEvent(enterEvent);
         console.log('[promptiply:webui] Triggered Enter key');
       }
-      
+
       await delay(300);
-      
+
       // Wait for assistant response
       let content = '';
       let stableCount = 0;
       const composedStart = composed.slice(0, 50).toLowerCase();
-      
+
       // Find the main content area and sidebar to exclude
       const mainContent = document.querySelector('main, [role="main"], [class*="main"], [class*="content"]');
       const sidebar = document.querySelector('nav[aria-label="Sidebar"], aside, [role="navigation"][class*="sidebar"], [class*="Sidebar"]');
-      
+
       for (let i = 0; i < 120; i++) { // up to ~30s max
         await delay(250);
-        
+
         // Claude assistant messages - try multiple selectors
         // First, try to find messages only in the main content area
         // Priority: Claude-specific markdown containers, then general message selectors
@@ -748,7 +825,7 @@ async function automateRefinement(site, composed) {
           'div[class*="assistant"]',
           '[data-testid*="assistant"]'
         ];
-        
+
         let msgs = [];
         // Try to find messages in the main content area first
         if (mainContent) {
@@ -761,7 +838,7 @@ async function automateRefinement(site, composed) {
             }
           }
         }
-        
+
         // If no messages in main content, search entire document
         if (msgs.length === 0) {
           for (const sel of allPossibleSelectors) {
@@ -773,7 +850,7 @@ async function automateRefinement(site, composed) {
             }
           }
         }
-        
+
         // If no messages found with specific selectors, try fallback: find all text blocks
         if (msgs.length === 0 && i >= 8) { // Wait at least 2 seconds before fallback
           console.log('[promptiply:webui] No specific messages found, trying fallback selectors');
@@ -783,7 +860,7 @@ async function automateRefinement(site, composed) {
             'p',
             'div'
           ];
-          
+
           for (const sel of fallbackSelectors) {
             const found = Array.from(document.querySelectorAll(sel));
             if (found.length > 0) {
@@ -799,11 +876,11 @@ async function automateRefinement(site, composed) {
                 // Exclude if it contains the refinement instruction
                 if (txt.toLowerCase().includes('refine this prompt')) return false;
                 // Exclude Claude disclaimer messages
-                if (txt.toLowerCase().includes('claude can make mistakes') || 
+                if (txt.toLowerCase().includes('claude can make mistakes') ||
                     txt.toLowerCase().includes('please double-check responses') ||
                     txt.toLowerCase().includes('double-check responses')) return false;
                 // Exclude CSS/JS code blocks
-                if (txt.includes('@keyframes') || txt.includes('@media') || 
+                if (txt.includes('@keyframes') || txt.includes('@media') ||
                     txt.includes('function(') || txt.includes('const ') ||
                     txt.match(/^[a-z-]+:\s*[^;]+;$/im)) return false;
                 // Exclude if it has too many CSS-like patterns
@@ -822,7 +899,7 @@ async function automateRefinement(site, composed) {
                 if (el.closest('header, footer, [role="banner"], [role="contentinfo"]')) return false;
                 return true;
               });
-              
+
               if (candidates.length > 0) {
                 msgs = candidates;
                 console.log('[promptiply:webui] Found messages with fallback selector:', sel, 'count:', candidates.length);
@@ -831,7 +908,7 @@ async function automateRefinement(site, composed) {
             }
           }
         }
-        
+
         // Filter messages: exclude input areas, sidebar, and our sent message
         msgs = msgs.filter(msg => {
           const txt = (msg.innerText || msg.textContent || '').trim();
@@ -842,11 +919,11 @@ async function automateRefinement(site, composed) {
           // Exclude if it contains the refinement instruction
           if (txt.toLowerCase().includes('refine this prompt')) return false;
           // Exclude Claude disclaimer messages
-          if (txt.toLowerCase().includes('claude can make mistakes') || 
+          if (txt.toLowerCase().includes('claude can make mistakes') ||
               txt.toLowerCase().includes('please double-check responses') ||
               txt.toLowerCase().includes('double-check responses')) return false;
           // Exclude CSS/JS code blocks
-          if (txt.includes('@keyframes') || txt.includes('@media') || 
+          if (txt.includes('@keyframes') || txt.includes('@media') ||
               txt.includes('function(') || txt.includes('const ') ||
               txt.match(/^[a-z-]+:\s*[^;]+;$/im)) return false;
           // Exclude if it has too many CSS-like patterns
@@ -868,7 +945,7 @@ async function automateRefinement(site, composed) {
           if (msg.closest('header, footer, [role="banner"], [role="contentinfo"]')) return false;
           return true;
         });
-        
+
         // Sort messages by length (prefer longer messages - the actual response)
         // This helps avoid picking up the short disclaimer message
         msgs.sort((a, b) => {
@@ -876,7 +953,7 @@ async function automateRefinement(site, composed) {
           const bTxt = (b.innerText || b.textContent || '').trim();
           return bTxt.length - aTxt.length;
         });
-        
+
         const last = msgs.length > 0 ? msgs[0] : null; // Get the longest message first
         if (last) {
           const txt = (last.innerText || last.textContent || '').trim();
@@ -908,7 +985,7 @@ async function automateRefinement(site, composed) {
             console.log('[promptiply:webui] No valid messages found, iteration:', i, 'allMessages:', msgs.length);
           }
         }
-        
+
         // Check if still typing
         const typing = document.querySelector('[class*="typing"], [aria-label*="typing"], [class*="loading"], [class*="spinner"]');
         if (!typing && content && content.length > 30 && stableCount >= 2) {
@@ -917,7 +994,7 @@ async function automateRefinement(site, composed) {
           await delay(1000);
           break;
         }
-        
+
         // Timeout after max iterations
         if (i === 119 && content) {
           console.log('[promptiply:webui] Claude timeout reached, using current content, length:', content.length);
@@ -925,7 +1002,7 @@ async function automateRefinement(site, composed) {
           console.log('[promptiply:webui] Claude timeout reached, NO content found');
         }
       }
-      
+
       // Wait a bit more after breaking to ensure we have the final content
       if (content && content.length > 0) {
         await delay(500);
@@ -936,7 +1013,7 @@ async function automateRefinement(site, composed) {
           '[data-role="assistant"]',
           '[class*="Message"][class*="assistant"]'
         ];
-        
+
         for (const sel of finalCheckSelectors) {
           const found = Array.from(document.querySelectorAll(sel));
           if (found.length > 0) {
@@ -946,11 +1023,11 @@ async function automateRefinement(site, composed) {
               if (txt.toLowerCase().startsWith(composedStart)) return false;
               if (txt.toLowerCase().includes('refine this prompt')) return false;
               // Exclude Claude disclaimer messages
-              if (txt.toLowerCase().includes('claude can make mistakes') || 
+              if (txt.toLowerCase().includes('claude can make mistakes') ||
                   txt.toLowerCase().includes('please double-check responses') ||
                   txt.toLowerCase().includes('double-check responses')) return false;
               // Exclude CSS/JS code blocks
-              if (txt.includes('@keyframes') || txt.includes('@media') || 
+              if (txt.includes('@keyframes') || txt.includes('@media') ||
                   txt.includes('function(') || txt.includes('const ') ||
                   txt.match(/^[a-z-]+:\s*[^;]+;$/im)) return false;
               // Exclude if it has too many CSS-like patterns
@@ -971,7 +1048,7 @@ async function automateRefinement(site, composed) {
               if (msg.closest('header, footer, [role="banner"], [role="contentinfo"]')) return false;
               return true;
             });
-            
+
             if (filtered.length > 0) {
               // Sort by length, prefer longer messages
               filtered.sort((a, b) => {
@@ -979,7 +1056,7 @@ async function automateRefinement(site, composed) {
                 const bTxt = (b.innerText || b.textContent || '').trim();
                 return bTxt.length - aTxt.length;
               });
-              
+
               const finalTxt = (filtered[0].innerText || filtered[0].textContent || '').trim();
               // Only update if it's longer and substantial (more than just disclaimer)
               if (finalTxt && finalTxt.length > 100 && finalTxt.length > content.length) {
@@ -990,15 +1067,15 @@ async function automateRefinement(site, composed) {
           }
         }
       }
-      
+
       let finalResult = content.trim();
-      
+
       // If still no content found, try one last desperate attempt: find the largest text block
       if (!finalResult || finalResult.length === 0) {
         console.log('[promptiply:webui] No content found with standard approach, trying desperate fallback');
         const inputEl = document.querySelector('.ProseMirror[contenteditable="true"], [contenteditable="true"][role="textbox"]');
         const allElements = Array.from(document.querySelectorAll('div, p, article, section, span'));
-        
+
         // Find all text blocks that are not the input and not our message
         const textBlocks = allElements
           .map(el => {
@@ -1008,11 +1085,11 @@ async function automateRefinement(site, composed) {
             if (txt.toLowerCase().startsWith(composedStart)) return null;
             if (txt.toLowerCase().includes('refine this prompt')) return null;
             // Exclude Claude disclaimer messages
-            if (txt.toLowerCase().includes('claude can make mistakes') || 
+            if (txt.toLowerCase().includes('claude can make mistakes') ||
                 txt.toLowerCase().includes('please double-check responses') ||
                 txt.toLowerCase().includes('double-check responses')) return null;
             // Exclude CSS/JS code blocks
-            if (txt.includes('@keyframes') || txt.includes('@media') || 
+            if (txt.includes('@keyframes') || txt.includes('@media') ||
                 txt.includes('function(') || txt.includes('const ') ||
                 txt.match(/^[a-z-]+:\s*[^;]+;$/im)) return null;
             // Exclude if it has too many CSS-like patterns
@@ -1033,17 +1110,17 @@ async function automateRefinement(site, composed) {
           })
           .filter(Boolean)
           .sort((a, b) => b.len - a.len); // Sort by length, largest first
-        
+
         if (textBlocks.length > 0) {
           finalResult = textBlocks[0].txt.trim();
           console.log('[promptiply:webui] Found content with desperate fallback, length:', finalResult.length);
         }
       }
-      
-      console.log('[promptiply:webui] Final Claude result:', { 
-        length: finalResult.length, 
+
+      console.log('[promptiply:webui] Final Claude result:', {
+        length: finalResult.length,
         isEmpty: !finalResult || finalResult.length === 0,
-        preview: finalResult.slice(0, 200) 
+        preview: finalResult.slice(0, 200)
       });
       return finalResult;
     } catch (e) {
@@ -1085,10 +1162,10 @@ At the end of the prompt add #promptiply_tag_<TAGNAME> for every useful tag that
   if (!profile) {
     return baseSystemPrompt;
   }
-  
+
   const parts = [baseSystemPrompt];
   parts.push('\nAdditionally, refine prompts according to the following profile:');
-  
+
   if (profile.persona) parts.push(`Target persona: ${profile.persona}`);
   if (profile.tone) parts.push(`Target tone: ${profile.tone}`);
   if (profile.styleGuidelines && profile.styleGuidelines.length > 0) {
@@ -1099,7 +1176,7 @@ At the end of the prompt add #promptiply_tag_<TAGNAME> for every useful tag that
   }
   
   parts.push('\nRefine the user\'s prompt so that when used, it will generate responses that match the profile above. Preserve the original intent while improving clarity, structure, and effectiveness.');
-  
+
   return parts.join('\n');
 }
 
@@ -1113,12 +1190,12 @@ async function ensureOffscreenDocument() {
   const clients = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
   });
-  
+
   if (clients.length > 0) {
     console.log('[promptiply:bg] Offscreen document already exists');
     return;
   }
-  
+
   // Create offscreen document
   // Note: We use DOM_SCRAPING reason as WEB_GPU is not available yet
   // The offscreen document can still access WebGPU when needed
@@ -1129,7 +1206,7 @@ async function ensureOffscreenDocument() {
       justification: 'Offscreen document required for local LLM inference with web-llm (WebGPU support)',
     });
     console.log('[promptiply:bg] Offscreen document created');
-    
+
     // Wait a bit for the offscreen document to initialize
     await new Promise(resolve => setTimeout(resolve, 1000));
   } catch (error) {
@@ -1156,7 +1233,7 @@ async function refineWithLocal({ system, user }) {
       const timeout = setTimeout(() => {
         reject(new Error('Local refinement timeout (60s)'));
       }, 120000); // 120 second timeout (longer for initial model download)
-      
+
       chrome.runtime.sendMessage(
         {
           type: 'PR_LOCAL_REFINE',
@@ -1167,22 +1244,22 @@ async function refineWithLocal({ system, user }) {
         },
         (response) => {
           clearTimeout(timeout);
-          
+
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;
           }
-          
+
           if (!response || !response.ok) {
             reject(new Error(response?.error || 'Unknown error from offscreen document'));
             return;
           }
-          
+
           resolve(response.refined);
         }
       );
     });
-    
+
     console.log('[promptiply:bg] Received refined prompt from local mode, length:', response.length);
     return response;
   } catch (error) {

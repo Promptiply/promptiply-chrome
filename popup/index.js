@@ -10,15 +10,29 @@
   const $mode = document.getElementById('mode');
   const $profile = document.getElementById('profile');
   const $openOptions = document.getElementById('open-options');
+  const $runOnboard = document.getElementById('run-onboard');
+  const $onboardBanner = document.getElementById('onboard-banner');
+  const $onboardCta = document.getElementById('onboard-cta');
+  const $onboardDismiss = document.getElementById('onboard-dismiss');
   const $hotkeyLabel = document.getElementById('hotkey-label');
   const $refineNow = document.getElementById('refine-now');
 
+  // Load settings and show hotkey
   chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
     const s = data[STORAGE_SETTINGS] || { mode: 'api' };
-    $mode.value = s.mode || 'api';
+    if ($mode) $mode.value = s.mode || 'api';
     if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
   });
 
+  // Decide whether to show run-onboard button and banner
+  chrome.storage.local.get(['onboarding_completed','onboardBannerDismissed'], (d) => {
+    const onboarded = !!(d && d.onboarding_completed);
+    const dismissed = !!(d && d.onboardBannerDismissed);
+  if (onboarded && $runOnboard) $runOnboard.classList.add('hidden');
+  if (!onboarded && !dismissed && $onboardBanner) $onboardBanner.classList.remove('hidden');
+  });
+
+  // Load profiles and render
   chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
     const p = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
     renderProfiles(p);
@@ -30,12 +44,13 @@
     }
     if (area === 'local' && changes[STORAGE_SETTINGS]) {
       const s = changes[STORAGE_SETTINGS].newValue || { mode: 'api' };
-      $mode.value = s.mode || 'api';
+      if ($mode) $mode.value = s.mode || 'api';
       if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
     }
   });
 
-  $mode.addEventListener('change', () => {
+  // Handlers
+  $mode?.addEventListener('change', () => {
     chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
       const cur = data[STORAGE_SETTINGS] || {};
       cur.mode = $mode.value;
@@ -43,7 +58,7 @@
     });
   });
 
-  $profile.addEventListener('change', () => {
+  $profile?.addEventListener('change', () => {
     chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = data[STORAGE_PROFILES] || { list: [], activeProfileId: null };
       cur.activeProfileId = $profile.value || null;
@@ -51,9 +66,40 @@
     });
   });
 
-  $openOptions.addEventListener('click', () => {
+  $openOptions?.addEventListener('click', () => {
     if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
     else window.open('chrome://extensions/?options=' + chrome.runtime.id);
+  });
+
+  // Open options and start onboarding (opens options with ?onboard=1)
+  async function openOptionsForOnboarding() {
+    const url = chrome.runtime.getURL('options/index.html?onboard=1');
+    try {
+      // Check if options page is already open
+      const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL('options/index.html*') });
+      if (tabs.length > 0) {
+        // Update existing tab with onboard parameter and focus it
+        await chrome.tabs.update(tabs[0].id, { url, active: true });
+      } else {
+        // Create new tab only if options page isn't open
+        await chrome.tabs.create({ url, active: true });
+      }
+    } catch (e) {
+      try { window.open(url); } catch (_) {}
+    }
+    // Hide banner and persist dismissal
+  if ($onboardBanner) $onboardBanner.classList.add('hidden');
+    chrome.storage.local.set({ onboardBannerDismissed: true });
+    try { window.close(); } catch(_) {}
+  }
+
+  $runOnboard?.addEventListener('click', openOptionsForOnboarding);
+  $onboardCta?.addEventListener('click', openOptionsForOnboarding);
+
+  // Dismiss button persists dismissal so banner won't reappear
+  $onboardDismiss?.addEventListener('click', () => {
+  try { if ($onboardBanner) $onboardBanner.classList.add('hidden'); } catch(_) {}
+    chrome.storage.local.set({ onboardBannerDismissed: true });
   });
 
   $refineNow?.addEventListener('click', async () => {
@@ -64,6 +110,7 @@
   });
 
   function renderProfiles(p) {
+    if (!$profile) return;
     $profile.innerHTML = '';
     const optNone = document.createElement('option');
     optNone.value = '';
@@ -77,6 +124,7 @@
     });
     if (p.activeProfileId) $profile.value = p.activeProfileId;
   }
+
 })();
 
 
