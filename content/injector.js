@@ -126,8 +126,28 @@ function matchesHotkey(e, combo) {
     return;
   }
 
-  // Observe input area and inject button
-  initInjection(adapter);
+  // Wait for critical page resources to load before initializing
+  // This prevents interference with ChatGPT's initialization sequence
+  function waitForPageReady() {
+    return new Promise((resolve) => {
+      // If document is already complete, wait a bit more
+      if (document.readyState === 'complete') {
+        setTimeout(resolve, 500);
+        return;
+      }
+      
+      // Otherwise wait for load event
+      window.addEventListener('load', () => {
+        setTimeout(resolve, 500);
+      }, { once: true });
+    });
+  }
+
+  // Initialize after page is ready
+  waitForPageReady().then(() => {
+    // Observe input area and inject button
+    initInjection(adapter);
+  });
 
   // Register hotkey from settings (platform-aware default)
   function getDefaultHotkey() {
@@ -242,7 +262,20 @@ function matchesHotkey(e, combo) {
     let floatUi = null;
     let observedInput = null;
     let ro = null;
+    let updateTimeout = null;
+    let lastUpdateTime = 0;
+    const MIN_UPDATE_INTERVAL = 200; // Minimum 200ms between updates
+    
     const update = () => {
+      // Debounce: prevent excessive calls
+      const now = Date.now();
+      if (now - lastUpdateTime < MIN_UPDATE_INTERVAL) {
+        if (updateTimeout) clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(update, MIN_UPDATE_INTERVAL);
+        return;
+      }
+      lastUpdateTime = now;
+      
       const inputEl = adapter.findInput();
       if (!inputEl) {
         if (floatUi) floatUi.classList.add('pr-pos-hidden');
@@ -264,8 +297,13 @@ function matchesHotkey(e, combo) {
 
     // Initial attempt + observe
     update();
-    const mo = new MutationObserver(() => update());
-    mo.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
+    // Use throttled MutationObserver: observe only childList, not all attributes
+    const mo = new MutationObserver(() => {
+      if (updateTimeout) clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(update, MIN_UPDATE_INTERVAL);
+    });
+    // Observe only childList changes, not attributes (less aggressive)
+    mo.observe(document.documentElement, { subtree: true, childList: true });
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     // Also poll briefly during first seconds to catch late mounts
@@ -529,25 +567,29 @@ function positionFloatingUI(host, inputEl) {
   } catch (_) {}
 }
 
-// Deep query that traverses open shadow roots
+// Deep query that traverses open shadow roots (with depth limit to prevent excessive recursion)
 function deepQuerySelector(selector, root = document) {
   const seen = new Set();
-  function walk(node) {
-    if (!node || seen.has(node)) return null;
+  const MAX_DEPTH = 15; // Limit recursion depth to prevent performance issues
+  
+  function walk(node, depth = 0) {
+    if (!node || seen.has(node) || depth > MAX_DEPTH) return null;
     seen.add(node);
     try {
       const found = node.querySelector?.(selector);
       if (found) return found;
     } catch (_) {}
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) {
+    // Early exit if too many children (performance optimization)
+    const maxChildren = Math.min(children.length, 50);
+    for (let i = 0; i < maxChildren; i++) {
       const child = children[i];
       const sr = child.shadowRoot;
       if (sr) {
-        const f = walk(sr);
+        const f = walk(sr, depth + 1);
         if (f) return f;
       }
-      const f2 = walk(child);
+      const f2 = walk(child, depth + 1);
       if (f2) return f2;
     }
     return null;
