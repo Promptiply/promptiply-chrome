@@ -19,8 +19,8 @@
 
   // Load settings and show hotkey
   chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
-    const s = data[STORAGE_SETTINGS] || { mode: 'api' };
-    if ($mode) $mode.value = s.mode || 'api';
+    const s = data[STORAGE_SETTINGS] || { mode: 'webui' };
+    if ($mode) $mode.value = s.mode || 'webui';
     if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
   });
 
@@ -43,8 +43,8 @@
       renderProfiles(changes[STORAGE_PROFILES].newValue || { list: [], activeProfileId: null });
     }
     if (area === 'local' && changes[STORAGE_SETTINGS]) {
-      const s = changes[STORAGE_SETTINGS].newValue || { mode: 'api' };
-      if ($mode) $mode.value = s.mode || 'api';
+      const s = changes[STORAGE_SETTINGS].newValue || { mode: 'webui' };
+      if ($mode) $mode.value = s.mode || 'webui';
       if ($hotkeyLabel) $hotkeyLabel.textContent = s.refineHotkey || getDefaultHotkey();
     }
   });

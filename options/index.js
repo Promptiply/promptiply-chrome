@@ -24,7 +24,7 @@
   };
   let onboardingState = {
     step: 1,
-    selectedMode: "api",
+    selectedMode: "webui",
     selectedProvider: "openai",
     apiKey: "",
     model: "",
@@ -258,7 +258,7 @@
       const anthropicModelCustom = document.getElementById("anthropic-model-custom");
 
       const s = {
-        mode: mode ? mode.value : "api",
+        mode: mode ? mode.value : "webui",
         provider: provider ? provider.value : "openai",
         openaiKey: openaiKey ? openaiKey.value.trim() || undefined : undefined,
         openaiModel: getModelValue(openaiModelSelect, openaiModelCustom),
@@ -432,7 +432,7 @@
     console.log("[promptiply] openOnboardingWizard called");
     onboardingState = {
       step: 1,
-      selectedMode: "api",
+      selectedMode: "webui",
       selectedProvider: "openai",
       apiKey: "",
       model: "",
@@ -567,23 +567,14 @@
       onboardingBody.innerHTML = `
         <div class="onboarding-section">
           <h3>WebUI Mode Setup</h3>
-          <p>WebUI mode doesn't require any API keys. Make sure you're logged into ChatGPT or Claude in your browser.</p>
-          <div class="field">
-            <label>Preferred provider</label>
-            <select id="ob-webui-provider">
-              <option value="openai" ${onboardingState.selectedProvider === "openai" ? "selected" : ""}>OpenAI (ChatGPT)</option>
-              <option value="anthropic" ${onboardingState.selectedProvider === "anthropic" ? "selected" : ""}>Anthropic (Claude)</option>
-            </select>
-          </div>
+          <p>WebUI mode doesn't require any API keys. The extension will automatically detect which AI provider to use based on the website you're on:</p>
+          <ul class="onboarding-list">
+            <li><strong>ChatGPT</strong> (chat.openai.com or chatgpt.com) → Uses OpenAI</li>
+            <li><strong>Claude</strong> (claude.ai) → Uses Anthropic</li>
+          </ul>
+          <p class="muted muted-top-margin">Make sure you're logged into ChatGPT or Claude in your browser before using the extension.</p>
         </div>
       `;
-
-      const obWebuiProvider = document.getElementById("ob-webui-provider");
-      if (obWebuiProvider) {
-        obWebuiProvider.addEventListener("change", () => {
-          onboardingState.selectedProvider = obWebuiProvider.value;
-        });
-      }
     } else {
       onboardingBody.innerHTML = `
         <div class="onboarding-section">
@@ -1833,7 +1824,7 @@
 
   // Load initial data
   chrome.storage.local.get([STORAGE_SETTINGS], (data) => {
-    const s = data[STORAGE_SETTINGS] || { mode: "api" };
+    const s = data[STORAGE_SETTINGS] || { mode: "webui" };
     const mode = document.getElementById("mode");
     const provider = document.getElementById("provider");
     const openaiKey = document.getElementById("openai-key");
@@ -1843,7 +1834,7 @@
     const anthropicModelSelect = document.getElementById("anthropic-model-select");
     const anthropicModelCustom = document.getElementById("anthropic-model-custom");
 
-    if (mode) mode.value = s.mode || "api";
+    if (mode) mode.value = s.mode || "webui";
     if (provider) provider.value = s.provider || (s.openaiKey ? "openai" : s.anthropicKey ? "anthropic" : "openai");
     if (openaiKey) openaiKey.value = s.openaiKey || "";
     if (openaiModelSelect && openaiModelCustom) setModelSelect(openaiModelSelect, openaiModelCustom, s.openaiModel || "gpt-5-nano");

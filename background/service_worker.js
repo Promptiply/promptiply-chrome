@@ -131,7 +131,7 @@ async function handleRefinement(payload, sender) {
     });
   });
 
-  const mode = settings.mode || 'api';
+  const mode = settings.mode || 'webui';
   const provider = settings.provider || 'openai';
 
   // Detect site from sender URL

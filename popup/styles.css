@@ -23,10 +23,10 @@ button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(124,58,237,0.35
 
 /* Onboarding banner */
 .onboard-banner { margin-bottom:12px; background: linear-gradient(90deg, rgba(124,58,237,0.06), rgba(6,182,212,0.03)); border:1px solid rgba(124,58,237,0.12); padding:10px; border-radius:10px; }
-.onboard-content { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.onboard-text { color:var(--text); font-size:13px; }
+.onboard-content { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.onboard-text { color:var(--text); font-size:13px; flex:1; }
 .onboard-actions { display:flex; gap:8px; }
 .onboard-banner .secondary { background: transparent; border:1px solid rgba(255,255,255,0.06); }
-.banner-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+.banner-actions { display:flex; gap:8px; align-items:center; flex-shrink:0; }
 .hidden { display:none !important; }
 

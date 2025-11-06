@@ -118,6 +118,8 @@ button:focus-visible { outline:none; box-shadow: 0 0 0 3px rgba(124,58,237,0.35)
 .onboarding-section { margin-bottom: 20px; }
 .onboarding-section h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
 .onboarding-section p { margin: 0 0 12px 0; color: var(--muted); line-height: 1.6; }
+.onboarding-list { margin: 12px 0; padding-left: 24px; color: var(--text); line-height: 1.8; }
+.onboarding-list li { margin-bottom: 8px; }
 .onboarding-success { text-align: center; padding: 40px 20px; }
 .onboarding-success .icon-48 { width: 64px; height: 64px; margin-bottom: 16px; }
 .onboarding-success h3 { margin: 0 0 12px 0; font-size: 20px; font-weight: 700; }
