@@ -904,6 +904,7 @@
       `;
       
       document.body.appendChild(modal);
+      console.log('[promptiply] Modal created: restore-confirm-modal, classList:', modal.className);
       
       // Wire up buttons
       const cancelBtn = document.getElementById('restore-cancel');
@@ -1065,6 +1066,7 @@
       `;
       
       document.body.appendChild(modal);
+      console.log('[promptiply] Modal created: export-modal, classList:', modal.className);
       
       // Get references
       const selectAllCheckbox = document.getElementById('export-select-all-checkbox');
@@ -1198,6 +1200,7 @@
     `;
     
     document.body.appendChild(modal);
+    console.log('[promptiply] Modal created: import-modal, classList:', modal.className);
     
     // File input button handler
     const fileButton = document.getElementById('import-file-button');
