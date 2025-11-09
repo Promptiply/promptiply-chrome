@@ -12,7 +12,6 @@
     "storage",
     "scripting",
     "activeTab",
-    "tabs",
     "commands",
     "offscreen"
   ],
