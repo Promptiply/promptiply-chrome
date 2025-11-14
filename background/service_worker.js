@@ -374,7 +374,7 @@ async function applyProfileEvolution({ profilesState, activeProfileIndex, prompt
 
   try {
     await new Promise((resolve, reject) => {
-      chrome.storage.sync.set({ profiles: profilesState }, () => {
+      chrome.storage.local.set({ profiles: profilesState }, () => {
         const err = chrome.runtime?.lastError;
         if (err) {
           reject(err);
@@ -468,7 +468,7 @@ chrome.commands.onCommand.addListener((cmd) => {
     });
   } else if (cmd === 'switch-profile') {
     // Cycle to the next profile
-    chrome.storage.sync.get(['profiles'], (data) => {
+    chrome.storage.local.get(['profiles'], (data) => {
       const profilesState = normalizeProfilesState(data.profiles);
 
       if (!profilesState.list || profilesState.list.length === 0) {
@@ -497,7 +497,7 @@ chrome.commands.onCommand.addListener((cmd) => {
       const newActiveProfileId = nextIndex === -1 ? null : profilesState.list[nextIndex].id;
       profilesState.activeProfileId = newActiveProfileId;
 
-      chrome.storage.sync.set({ profiles: profilesState }, () => {
+      chrome.storage.local.set({ profiles: profilesState }, () => {
         const profileName = nextIndex === -1
           ? '(no profile)'
           : (profilesState.list[nextIndex].name || profilesState.list[nextIndex].id);
@@ -527,7 +527,7 @@ try {
         console.log('[promptiply:bg] First install detected - opening onboarding');
         // Create sensible default profile(s) in sync storage if none exist
         try {
-          chrome.storage.sync.get(['profiles'], (data) => {
+          chrome.storage.local.get(['profiles'], (data) => {
             const existing = data && data.profiles;
             if (!existing || !existing.list || existing.list.length === 0) {
               const defaultProfile = {
@@ -539,7 +539,7 @@ try {
                 evolving_profile: createEmptyEvolution(),
               };
               const payload = { list: [defaultProfile], activeProfileId: 'default' };
-              chrome.storage.sync.set({ profiles: payload }, () => {
+              chrome.storage.local.set({ profiles: payload }, () => {
                 console.log('[promptiply:bg] Default profile created on install');
               });
             }
@@ -557,6 +557,45 @@ try {
 } catch (e) {
   // Some environments may not allow setting onInstalled here — ignore safely
 }
+
+// Migrate profiles from sync to local storage (one-time migration)
+try {
+  chrome.storage.local.get(['profiles', 'profiles_migrated'], (localData) => {
+    // Skip if already migrated or if local storage already has profiles
+    if (localData.profiles_migrated || (localData.profiles && localData.profiles.list && localData.profiles.list.length > 0)) {
+      console.log('[promptiply:bg] Profiles migration: already migrated or local storage has data');
+      return;
+    }
+
+    // Check sync storage for existing profiles
+    chrome.storage.sync.get(['profiles'], (syncData) => {
+      if (syncData.profiles && syncData.profiles.list && syncData.profiles.list.length > 0) {
+        console.log('[promptiply:bg] Migrating', syncData.profiles.list.length, 'profiles from sync to local storage');
+
+        // Copy profiles to local storage
+        chrome.storage.local.set({
+          profiles: syncData.profiles,
+          profiles_migrated: true
+        }, () => {
+          console.log('[promptiply:bg] Profile migration complete');
+
+          // Optionally clear sync storage to free up space
+          chrome.storage.sync.remove(['profiles'], () => {
+            console.log('[promptiply:bg] Cleared profiles from sync storage');
+          });
+        });
+      } else {
+        // No profiles in sync, just mark as migrated
+        chrome.storage.local.set({ profiles_migrated: true }, () => {
+          console.log('[promptiply:bg] No profiles to migrate, marked as migrated');
+        });
+      }
+    });
+  });
+} catch (e) {
+  console.warn('[promptiply:bg] Profile migration error:', e);
+}
+
 async function handleRefinement(payload, sender) {
   const { prompt } = payload || {};
   console.log('[promptiply:bg] Received refinement request', { hasPayload: !!payload, promptPreview: prompt?.slice(0, 100) });
@@ -588,7 +627,7 @@ async function handleRefinement(payload, sender) {
 
   // Load active profile
   const profilesState = await new Promise((resolve) => {
-    chrome.storage.sync.get(['profiles'], (data) => {
+    chrome.storage.local.get(['profiles'], (data) => {
       resolve(normalizeProfilesState(data.profiles));
     });
   });

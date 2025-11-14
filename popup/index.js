@@ -39,7 +39,7 @@
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes[STORAGE_PROFILES]) {
+    if (area === 'local' && changes[STORAGE_PROFILES]) {
       renderProfiles(changes[STORAGE_PROFILES].newValue || { list: [], activeProfileId: null });
     }
     if (area === 'local' && changes[STORAGE_SETTINGS]) {

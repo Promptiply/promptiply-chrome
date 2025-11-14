@@ -945,7 +945,7 @@ function showProfileContextMenu(button, x, y) {
   // Append to portal
   portal.appendChild(profileContextMenu);
   
-  chrome.storage.sync.get(['profiles'], (data) => {
+  chrome.storage.local.get(['profiles'], (data) => {
     const profiles = data.profiles || { list: [], activeProfileId: null };
     const activeProfileId = profiles.activeProfileId;
     
@@ -1031,10 +1031,10 @@ function hideProfileContextMenu() {
 }
 
 function updateActiveProfile(profileId) {
-  chrome.storage.sync.get(['profiles'], (data) => {
+  chrome.storage.local.get(['profiles'], (data) => {
     const profiles = data.profiles || { list: [], activeProfileId: null };
     profiles.activeProfileId = profileId;
-    chrome.storage.sync.set({ profiles }, () => {
+    chrome.storage.local.set({ profiles }, () => {
       try {
         console.log('[promptiply] Active profile updated:', profileId);
       } catch(_) {}

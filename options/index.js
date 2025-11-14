@@ -867,7 +867,7 @@
 
     // Create profile if provided
     if (onboardingState.profileName) {
-      chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+      chrome.storage.local.get([STORAGE_PROFILES], (data) => {
         const profiles = normalizeProfilesState(data[STORAGE_PROFILES]);
         const profileId = `p_${Date.now()}`;
         const newProfile = {
@@ -883,7 +883,7 @@
         };
         profiles.list.push(newProfile);
         if (!profiles.activeProfileId) profiles.activeProfileId = profileId;
-        chrome.storage.sync.set({ [STORAGE_PROFILES]: profiles });
+        chrome.storage.local.set({ [STORAGE_PROFILES]: profiles });
       });
     }
 
@@ -959,7 +959,7 @@
       activate.disabled = state.activeProfileId === prof.id;
       activate.addEventListener("click", () => {
         const updated = { ...state, list: state.list.slice(), activeProfileId: prof.id };
-        chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => renderProfiles(updated));
+        chrome.storage.local.set({ [STORAGE_PROFILES]: updated }, () => renderProfiles(updated));
       });
       const edit = document.createElement("button");
       edit.textContent = "Edit";
@@ -972,7 +972,7 @@
           list: state.list.filter((x) => x.id !== prof.id),
         };
         if (updated.activeProfileId === prof.id) updated.activeProfileId = updated.list[0]?.id || null;
-        chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => renderProfiles(updated));
+        chrome.storage.local.set({ [STORAGE_PROFILES]: updated }, () => renderProfiles(updated));
       });
       actions.appendChild(activate);
       actions.appendChild(edit);
@@ -1066,7 +1066,7 @@
     const topicsInput = document.getElementById("evolving-topics");
     const topics = parseTopicsInput(topicsInput?.value || "");
 
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const state = normalizeProfilesState(data[STORAGE_PROFILES]);
       const idx = state.list.findIndex((p) => p.id === profileId);
       if (idx < 0) {
@@ -1130,7 +1130,7 @@
       state.list = state.list.slice();
       state.list[idx] = { ...current, evolving_profile: merged };
 
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: state }, () => {
+      chrome.storage.local.set({ [STORAGE_PROFILES]: state }, () => {
         const err = chrome.runtime?.lastError;
         if (err) {
           console.warn("[promptiply] Failed to persist manual evolution", err);
@@ -1146,7 +1146,7 @@
   }
 
   function handleEvolvingReset() {
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const state = normalizeProfilesState(data[STORAGE_PROFILES]);
       renderEvolvingEditor(state);
       showToast("Fields reset to stored values");
@@ -1186,13 +1186,13 @@
   }
 
   function importPredefinedProfile(pref, opts = { activate: true }) {
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       const exists = cur.list.find((x) => x.name === pref.name);
       if (exists) {
         if (opts.activate) {
           cur.activeProfileId = exists.id;
-          chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => renderProfiles(cur));
+          chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => renderProfiles(cur));
         }
         return;
       }
@@ -1214,7 +1214,7 @@
       };
       cur.list.push(newP);
       if (opts.activate && !cur.activeProfileId) cur.activeProfileId = newP.id;
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+      chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
         renderProfiles(cur);
         if (!opts.silent) showToast(`Imported "${pref.name}"`);
       });
@@ -1240,7 +1240,7 @@
   // Restore Defaults - resets to only predefined profiles
   function showRestoreConfirmation() {
     console.log('[promptiply] showRestoreConfirmation called');
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       const predefinedProfiles = cur.list.filter(p => p.importedFromPredefined === true);
       const customProfiles = cur.list.filter(p => !p.importedFromPredefined);
@@ -1306,7 +1306,7 @@
   }
 
   function restoreDefaults(toDelete) {
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       // Store for undo
@@ -1319,7 +1319,7 @@
         activeProfileId: remaining.some(p => p.id === cur.activeProfileId) ? cur.activeProfileId : (remaining[0]?.id || null)
       };
       
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => {
+      chrome.storage.local.set({ [STORAGE_PROFILES]: updated }, () => {
         renderProfiles(updated);
         showUndoToast(toDelete.length);
         console.log('[promptiply] Restored defaults, removed', toDelete.length, 'custom profiles');
@@ -1370,7 +1370,7 @@
       return;
     }
     
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       // Restore deleted profiles
@@ -1379,7 +1379,7 @@
         activeProfileId: cur.activeProfileId
       };
       
-      chrome.storage.sync.set({ [STORAGE_PROFILES]: updated }, () => {
+      chrome.storage.local.set({ [STORAGE_PROFILES]: updated }, () => {
         renderProfiles(updated);
         showToast(`Restored ${deletedProfilesUndo.length} profile(s)`);
         console.log('[promptiply] Undo restore: added back', deletedProfilesUndo.length, 'profiles');
@@ -1396,7 +1396,7 @@
   // Export profiles with selection
   function exportProfiles() {
     console.log('[promptiply] exportProfiles called');
-    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
       const profiles = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       if (profiles.list.length === 0) {
@@ -1750,11 +1750,6 @@
     }
   }
 
-  function estimateStorageSize(obj) {
-    // Rough estimate of storage size in bytes
-    return JSON.stringify(obj).length;
-  }
-
   function processImportData(data, statusEl, modal) {
     try {
       const profiles = parseImportEnvelope(data);
@@ -1776,12 +1771,11 @@
         statusEl.innerHTML = `<div class="status-info">Processing ${profiles.length} profiles...</div>`;
       }
 
-      // Import the profiles in batches to handle quota limits
-      chrome.storage.sync.get([STORAGE_PROFILES], (storageData) => {
+      // Import all profiles at once - no quota limits with local storage!
+      chrome.storage.local.get([STORAGE_PROFILES], (storageData) => {
         const cur = normalizeProfilesState(storageData[STORAGE_PROFILES]);
 
-        // Prepare profiles for import
-        let toImport = [];
+        let imported = 0;
         let skipped = 0;
 
         profiles.forEach(prof => {
@@ -1807,96 +1801,29 @@
             importedAt: new Date().toISOString()
           });
           if (importedProfile) {
-            toImport.push(importedProfile);
+            cur.list.push(importedProfile);
+            imported++;
           }
         });
 
-        if (toImport.length === 0) {
+        if (imported === 0) {
           statusEl.innerHTML = `<div class="status-warning">No new profiles to import${skipped > 0 ? ` (${skipped} duplicates skipped)` : ''}</div>`;
           return;
         }
 
-        // Batch import to avoid quota issues
-        const BATCH_SIZE = 5; // Import 5 profiles at a time
-        let batchIndex = 0;
-        let imported = 0;
-
-        function importNextBatch() {
-          const batch = toImport.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
-
-          if (batch.length === 0) {
-            // All done
-            renderProfiles(cur);
-            modal.remove();
-            showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`);
-            console.log('[promptiply] Import complete:', { imported, skipped });
+        // Save all imported profiles at once - no quota limits with local storage!
+        chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
+            console.error('[promptiply] Import storage error:', err);
             return;
           }
-
-          // Add batch to current list
-          batch.forEach(prof => cur.list.push(prof));
-
-          // Check estimated size
-          const estimatedSize = estimateStorageSize(cur);
-          const QUOTA_LIMIT = 7000; // Chrome sync quota is 8192 bytes per item, leave some margin
-
-          if (estimatedSize > QUOTA_LIMIT) {
-            // Too large, show error
-            statusEl.innerHTML = `<div class="status-error">Storage quota exceeded. Successfully imported ${imported} profiles, but ${toImport.length - imported} remaining profiles cannot fit.<br><br>Chrome sync storage limit: ~8KB per item. Consider removing some existing profiles or splitting the import into smaller batches.</div>`;
-            console.error('[promptiply] Storage quota would be exceeded:', { estimatedSize, limit: QUOTA_LIMIT });
-
-            // Remove the batch we just added
-            cur.list = cur.list.slice(0, -(batch.length));
-
-            // Save what we have so far
-            if (imported > 0) {
-              chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
-                renderProfiles(cur);
-              });
-            }
-            return;
-          }
-
-          // Try to save this batch
-          chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
-            const err = chrome.runtime.lastError;
-            if (err) {
-              // Quota exceeded or other error
-              if (err.message && err.message.includes('quota')) {
-                statusEl.innerHTML = `<div class="status-error">Storage quota exceeded after importing ${imported} profiles.<br><br>${toImport.length - imported} profiles could not be imported. Chrome sync storage limit: ~8KB total.<br><br>Suggestions:<br>• Remove some existing profiles to free up space<br>• Split your import into smaller batches<br>• Simplify profiles (remove long examples/guidelines)</div>`;
-              } else {
-                statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
-              }
-              console.error('[promptiply] Import storage error:', err);
-
-              // Remove the failed batch
-              cur.list = cur.list.slice(0, -(batch.length));
-
-              // Save what we have so far
-              if (imported > 0) {
-                chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
-                  renderProfiles(cur);
-                });
-              }
-              return;
-            }
-
-            // Success - move to next batch
-            imported += batch.length;
-            batchIndex++;
-
-            // Update progress
-            if (toImport.length > 5) {
-              statusEl.innerHTML = `<div class="status-info">Imported ${imported} of ${toImport.length} profiles...</div>`;
-            }
-
-            // Small delay between batches to avoid hitting rate limits
-            setTimeout(importNextBatch, 100);
-          });
-        }
-
-        // Start importing
-        importNextBatch();
+          renderProfiles(cur);
+          modal.remove();
+          showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`);
+          console.log('[promptiply] Import complete:', { imported, skipped });
+        });
       });
 
     } catch (error) {
@@ -2071,7 +1998,7 @@
       const wizardSave = document.getElementById("wizard-save");
       if (wizardSave && !wizardSave.dataset.prAttached) {
         wizardSave.addEventListener("click", () => {
-          chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+          chrome.storage.local.get([STORAGE_PROFILES], (data) => {
             const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
             if (wizardState.editingId) {
               const idx = cur.list.findIndex((p) => p.id === wizardState.editingId);
@@ -2101,7 +2028,7 @@
               cur.list.push(prof);
               if (!cur.activeProfileId) cur.activeProfileId = id;
             }
-            chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+            chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
               renderProfiles(cur);
               closeWizard();
             });
@@ -2344,7 +2271,7 @@
     updateProviderDisabled();
   });
 
-  chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
+  chrome.storage.local.get([STORAGE_PROFILES], (data) => {
     const p = normalizeProfilesState(data[STORAGE_PROFILES]);
     renderProfiles(p);
   });
