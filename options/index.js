@@ -1798,11 +1798,17 @@
           });
           if (importedProfile) {
             cur.list.push(importedProfile);
+            imported++;
           }
-          imported++;
         });
-        
+
         chrome.storage.sync.set({ [STORAGE_PROFILES]: cur }, () => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
+            console.error('[promptiply] Import storage error:', err);
+            return;
+          }
           renderProfiles(cur);
           modal.remove();
           showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`);
