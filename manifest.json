@@ -50,7 +50,8 @@
     },
     "switch-profile": {
       "suggested_key": {
-        "default": "Alt+Shift+P"
+        "default": "Alt+Shift+R",
+        "mac": "MacCtrl+Shift+R"
       },
       "description": "Switch profile"
     }

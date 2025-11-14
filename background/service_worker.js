@@ -374,7 +374,7 @@ async function applyProfileEvolution({ profilesState, activeProfileIndex, prompt
 
   try {
     await new Promise((resolve, reject) => {
-      chrome.storage.sync.set({ profiles: profilesState }, () => {
+      setProfilesStorage(profilesState, () => {
         const err = chrome.runtime?.lastError;
         if (err) {
           reject(err);
@@ -466,6 +466,56 @@ chrome.commands.onCommand.addListener((cmd) => {
         chrome.tabs.sendMessage(tabs[0].id, { type: 'PR_TRIGGER_REFINE' });
       }
     });
+  } else if (cmd === 'switch-profile') {
+    // Cycle to the next profile
+    getProfilesStorage((profiles, location) => {
+      const profilesState = normalizeProfilesState(profiles);
+
+      if (!profilesState.list || profilesState.list.length === 0) {
+        console.log('[promptiply:bg] No profiles available to switch');
+        return;
+      }
+
+      // Find the index of the currently active profile
+      const currentIndex = profilesState.list.findIndex((p) => p.id === profilesState.activeProfileId);
+
+      // Calculate the next profile index (cycle through, including null/"no profile")
+      // We treat -1 (no active profile) as position before the first profile
+      let nextIndex;
+      if (currentIndex === -1) {
+        // Currently no profile selected, select the first one
+        nextIndex = 0;
+      } else if (currentIndex === profilesState.list.length - 1) {
+        // At the end, cycle back to "no profile" (null)
+        nextIndex = -1;
+      } else {
+        // Move to the next profile
+        nextIndex = currentIndex + 1;
+      }
+
+      // Set the new active profile
+      const newActiveProfileId = nextIndex === -1 ? null : profilesState.list[nextIndex].id;
+      profilesState.activeProfileId = newActiveProfileId;
+
+      setProfilesStorage(profilesState, () => {
+        const profileName = nextIndex === -1
+          ? '(no profile)'
+          : (profilesState.list[nextIndex].name || profilesState.list[nextIndex].id);
+        console.log('[promptiply:bg] Switched to profile:', profileName);
+
+        // Show a notification to the user
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, {
+              type: 'PR_PROFILE_SWITCHED',
+              payload: { profileName }
+            }).catch(() => {
+              // Ignore errors if content script is not ready
+            });
+          }
+        });
+      });
+    });
   }
 });
 
@@ -475,10 +525,9 @@ try {
     try {
       if (details && details.reason === 'install') {
         console.log('[promptiply:bg] First install detected - opening onboarding');
-        // Create sensible default profile(s) in sync storage if none exist
+        // Create sensible default profile(s) in storage if none exist
         try {
-          chrome.storage.sync.get(['profiles'], (data) => {
-            const existing = data && data.profiles;
+          getProfilesStorage((existing, location) => {
             if (!existing || !existing.list || existing.list.length === 0) {
               const defaultProfile = {
                 id: 'default',
@@ -489,7 +538,7 @@ try {
                 evolving_profile: createEmptyEvolution(),
               };
               const payload = { list: [defaultProfile], activeProfileId: 'default' };
-              chrome.storage.sync.set({ profiles: payload }, () => {
+              setProfilesStorage(payload, () => {
                 console.log('[promptiply:bg] Default profile created on install');
               });
             }
@@ -507,6 +556,26 @@ try {
 } catch (e) {
   // Some environments may not allow setting onInstalled here — ignore safely
 }
+
+// Helper functions for storage location management
+function getProfilesStorage(callback) {
+  chrome.storage.sync.get(['profiles_storage_location'], (data) => {
+    const location = data.profiles_storage_location || 'sync'; // Default to sync
+    const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+    storage.get(['profiles'], (profileData) => {
+      callback(profileData.profiles, location);
+    });
+  });
+}
+
+function setProfilesStorage(profiles, callback) {
+  chrome.storage.sync.get(['profiles_storage_location'], (data) => {
+    const location = data.profiles_storage_location || 'sync';
+    const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+    storage.set({ profiles }, callback);
+  });
+}
+
 async function handleRefinement(payload, sender) {
   const { prompt } = payload || {};
   console.log('[promptiply:bg] Received refinement request', { hasPayload: !!payload, promptPreview: prompt?.slice(0, 100) });
@@ -538,8 +607,8 @@ async function handleRefinement(payload, sender) {
 
   // Load active profile
   const profilesState = await new Promise((resolve) => {
-    chrome.storage.sync.get(['profiles'], (data) => {
-      resolve(normalizeProfilesState(data.profiles));
+    getProfilesStorage((profiles, location) => {
+      resolve(normalizeProfilesState(profiles));
     });
   });
 
