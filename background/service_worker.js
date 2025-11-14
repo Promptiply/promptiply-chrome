@@ -374,7 +374,7 @@ async function applyProfileEvolution({ profilesState, activeProfileIndex, prompt
 
   try {
     await new Promise((resolve, reject) => {
-      chrome.storage.local.set({ profiles: profilesState }, () => {
+      setProfilesStorage(profilesState, () => {
         const err = chrome.runtime?.lastError;
         if (err) {
           reject(err);
@@ -468,8 +468,8 @@ chrome.commands.onCommand.addListener((cmd) => {
     });
   } else if (cmd === 'switch-profile') {
     // Cycle to the next profile
-    chrome.storage.local.get(['profiles'], (data) => {
-      const profilesState = normalizeProfilesState(data.profiles);
+    getProfilesStorage((profiles, location) => {
+      const profilesState = normalizeProfilesState(profiles);
 
       if (!profilesState.list || profilesState.list.length === 0) {
         console.log('[promptiply:bg] No profiles available to switch');
@@ -497,7 +497,7 @@ chrome.commands.onCommand.addListener((cmd) => {
       const newActiveProfileId = nextIndex === -1 ? null : profilesState.list[nextIndex].id;
       profilesState.activeProfileId = newActiveProfileId;
 
-      chrome.storage.local.set({ profiles: profilesState }, () => {
+      setProfilesStorage(profilesState, () => {
         const profileName = nextIndex === -1
           ? '(no profile)'
           : (profilesState.list[nextIndex].name || profilesState.list[nextIndex].id);
@@ -525,10 +525,9 @@ try {
     try {
       if (details && details.reason === 'install') {
         console.log('[promptiply:bg] First install detected - opening onboarding');
-        // Create sensible default profile(s) in sync storage if none exist
+        // Create sensible default profile(s) in storage if none exist
         try {
-          chrome.storage.local.get(['profiles'], (data) => {
-            const existing = data && data.profiles;
+          getProfilesStorage((existing, location) => {
             if (!existing || !existing.list || existing.list.length === 0) {
               const defaultProfile = {
                 id: 'default',
@@ -539,7 +538,7 @@ try {
                 evolving_profile: createEmptyEvolution(),
               };
               const payload = { list: [defaultProfile], activeProfileId: 'default' };
-              chrome.storage.local.set({ profiles: payload }, () => {
+              setProfilesStorage(payload, () => {
                 console.log('[promptiply:bg] Default profile created on install');
               });
             }
@@ -558,42 +557,23 @@ try {
   // Some environments may not allow setting onInstalled here — ignore safely
 }
 
-// Migrate profiles from sync to local storage (one-time migration)
-try {
-  chrome.storage.local.get(['profiles', 'profiles_migrated'], (localData) => {
-    // Skip if already migrated or if local storage already has profiles
-    if (localData.profiles_migrated || (localData.profiles && localData.profiles.list && localData.profiles.list.length > 0)) {
-      console.log('[promptiply:bg] Profiles migration: already migrated or local storage has data');
-      return;
-    }
-
-    // Check sync storage for existing profiles
-    chrome.storage.sync.get(['profiles'], (syncData) => {
-      if (syncData.profiles && syncData.profiles.list && syncData.profiles.list.length > 0) {
-        console.log('[promptiply:bg] Migrating', syncData.profiles.list.length, 'profiles from sync to local storage');
-
-        // Copy profiles to local storage
-        chrome.storage.local.set({
-          profiles: syncData.profiles,
-          profiles_migrated: true
-        }, () => {
-          console.log('[promptiply:bg] Profile migration complete');
-
-          // Optionally clear sync storage to free up space
-          chrome.storage.sync.remove(['profiles'], () => {
-            console.log('[promptiply:bg] Cleared profiles from sync storage');
-          });
-        });
-      } else {
-        // No profiles in sync, just mark as migrated
-        chrome.storage.local.set({ profiles_migrated: true }, () => {
-          console.log('[promptiply:bg] No profiles to migrate, marked as migrated');
-        });
-      }
+// Helper functions for storage location management
+function getProfilesStorage(callback) {
+  chrome.storage.sync.get(['profiles_storage_location'], (data) => {
+    const location = data.profiles_storage_location || 'sync'; // Default to sync
+    const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+    storage.get(['profiles'], (profileData) => {
+      callback(profileData.profiles, location);
     });
   });
-} catch (e) {
-  console.warn('[promptiply:bg] Profile migration error:', e);
+}
+
+function setProfilesStorage(profiles, callback) {
+  chrome.storage.sync.get(['profiles_storage_location'], (data) => {
+    const location = data.profiles_storage_location || 'sync';
+    const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+    storage.set({ profiles }, callback);
+  });
 }
 
 async function handleRefinement(payload, sender) {
@@ -627,8 +607,8 @@ async function handleRefinement(payload, sender) {
 
   // Load active profile
   const profilesState = await new Promise((resolve) => {
-    chrome.storage.local.get(['profiles'], (data) => {
-      resolve(normalizeProfilesState(data.profiles));
+    getProfilesStorage((profiles, location) => {
+      resolve(normalizeProfilesState(profiles));
     });
   });
 

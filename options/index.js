@@ -6,6 +6,7 @@
   const STORAGE_ONBOARDING = "onboarding_completed";
   const STORAGE_SETTINGS = "settings";
   const STORAGE_PROFILES = "profiles";
+  const STORAGE_PROFILES_LOCATION = "profiles_storage_location"; // 'sync' or 'local'
   const STORAGE_PREDEFINED = "predefined_profiles";
   const SCHEMA_VERSION = 1;
 
@@ -15,6 +16,29 @@
     list: [],
     activeProfileId: null,
   });
+
+  // Helper functions for storage location management
+  function getProfilesStorage(callback) {
+    chrome.storage.sync.get([STORAGE_PROFILES_LOCATION], (data) => {
+      const location = data[STORAGE_PROFILES_LOCATION] || 'sync'; // Default to sync for cross-device syncing
+      const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+      storage.get([STORAGE_PROFILES], (profileData) => {
+        callback(profileData[STORAGE_PROFILES], location, storage);
+      });
+    });
+  }
+
+  function setProfilesStorage(profiles, callback) {
+    chrome.storage.sync.get([STORAGE_PROFILES_LOCATION], (data) => {
+      const location = data[STORAGE_PROFILES_LOCATION] || 'sync';
+      const storage = location === 'local' ? chrome.storage.local : chrome.storage.sync;
+      storage.set({ [STORAGE_PROFILES]: profiles }, callback);
+    });
+  }
+
+  function estimateStorageSize(obj) {
+    return JSON.stringify(obj).length;
+  }
 
   function createEmptyEvolution() {
     return {
@@ -867,7 +891,7 @@
 
     // Create profile if provided
     if (onboardingState.profileName) {
-      chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+      chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
         const profiles = normalizeProfilesState(data[STORAGE_PROFILES]);
         const profileId = `p_${Date.now()}`;
         const newProfile = {
@@ -1066,7 +1090,7 @@
     const topicsInput = document.getElementById("evolving-topics");
     const topics = parseTopicsInput(topicsInput?.value || "");
 
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const state = normalizeProfilesState(data[STORAGE_PROFILES]);
       const idx = state.list.findIndex((p) => p.id === profileId);
       if (idx < 0) {
@@ -1146,7 +1170,7 @@
   }
 
   function handleEvolvingReset() {
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const state = normalizeProfilesState(data[STORAGE_PROFILES]);
       renderEvolvingEditor(state);
       showToast("Fields reset to stored values");
@@ -1186,7 +1210,7 @@
   }
 
   function importPredefinedProfile(pref, opts = { activate: true }) {
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       const exists = cur.list.find((x) => x.name === pref.name);
       if (exists) {
@@ -1240,7 +1264,7 @@
   // Restore Defaults - resets to only predefined profiles
   function showRestoreConfirmation() {
     console.log('[promptiply] showRestoreConfirmation called');
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       const predefinedProfiles = cur.list.filter(p => p.importedFromPredefined === true);
       const customProfiles = cur.list.filter(p => !p.importedFromPredefined);
@@ -1306,7 +1330,7 @@
   }
 
   function restoreDefaults(toDelete) {
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       // Store for undo
@@ -1370,7 +1394,7 @@
       return;
     }
     
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       // Restore deleted profiles
@@ -1396,7 +1420,7 @@
   // Export profiles with selection
   function exportProfiles() {
     console.log('[promptiply] exportProfiles called');
-    chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+    chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
       const profiles = normalizeProfilesState(data[STORAGE_PROFILES]);
       
       if (profiles.list.length === 0) {
@@ -1771,9 +1795,9 @@
         statusEl.innerHTML = `<div class="status-info">Processing ${profiles.length} profiles...</div>`;
       }
 
-      // Import all profiles at once - no quota limits with local storage!
-      chrome.storage.local.get([STORAGE_PROFILES], (storageData) => {
-        const cur = normalizeProfilesState(storageData[STORAGE_PROFILES]);
+      // Get current storage location and profiles
+      getProfilesStorage((currentProfiles, location, storage) => {
+        const cur = normalizeProfilesState(currentProfiles);
 
         let imported = 0;
         let skipped = 0;
@@ -1811,18 +1835,99 @@
           return;
         }
 
-        // Save all imported profiles at once - no quota limits with local storage!
-        chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
+        // Check if using sync storage and if size would exceed quota
+        const estimatedSize = estimateStorageSize(cur);
+        const SYNC_QUOTA_LIMIT = 7500; // ~8KB limit with safety margin
+
+        if (location === 'sync' && estimatedSize > SYNC_QUOTA_LIMIT) {
+          // Offer choice to switch to local storage
+          statusEl.innerHTML = `
+            <div class="status-warning">
+              <strong>Storage Quota Warning</strong><br><br>
+              The profiles would exceed Chrome's sync storage limit (${estimatedSize} bytes, limit: ${SYNC_QUOTA_LIMIT} bytes).<br><br>
+              <strong>Choose an option:</strong><br>
+              <button id="switch-to-local" style="margin: 8px 4px; padding: 8px 12px;">Use Local Storage (No Sync)</button>
+              <button id="cancel-import" style="margin: 8px 4px; padding: 8px 12px;">Cancel Import</button><br><br>
+              <small><strong>Local Storage:</strong> Unlimited space, but profiles won't sync across devices.<br>
+              <strong>Sync Storage:</strong> Profiles sync across devices, but limited to ~8KB total.</small>
+            </div>
+          `;
+
+          // Add event listeners for the buttons
+          setTimeout(() => {
+            const switchBtn = document.getElementById('switch-to-local');
+            const cancelBtn = document.getElementById('cancel-import');
+
+            if (switchBtn) {
+              switchBtn.addEventListener('click', () => {
+                // Switch to local storage
+                chrome.storage.sync.set({ [STORAGE_PROFILES_LOCATION]: 'local' }, () => {
+                  statusEl.innerHTML = '<div class="status-info">Switching to local storage...</div>';
+                  // Now save the profiles
+                  chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
+                    const err = chrome.runtime.lastError;
+                    if (err) {
+                      statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
+                      return;
+                    }
+                    renderProfiles(cur);
+                    modal.remove();
+                    showToast(`Switched to local storage. Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicates` : ''}`);
+                    console.log('[promptiply] Switched to local storage, import complete:', { imported, skipped });
+                  });
+                });
+              });
+            }
+
+            if (cancelBtn) {
+              cancelBtn.addEventListener('click', () => {
+                modal.remove();
+              });
+            }
+          }, 100);
+
+          return;
+        }
+
+        // Save profiles using current storage location
+        setProfilesStorage(cur, () => {
           const err = chrome.runtime.lastError;
           if (err) {
-            statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
+            // If sync quota exceeded, offer to switch
+            if (err.message && err.message.includes('quota')) {
+              statusEl.innerHTML = `
+                <div class="status-error">
+                  <strong>Sync Storage Quota Exceeded</strong><br><br>
+                  Chrome's sync storage limit reached.<br><br>
+                  <button id="switch-to-local-error" style="margin: 8px 4px; padding: 8px 12px;">Switch to Local Storage</button>
+                  <button id="cancel-import-error" style="margin: 8px 4px; padding: 8px 12px;">Cancel</button><br><br>
+                  <small>Local storage has unlimited space but won't sync across devices.</small>
+                </div>
+              `;
+
+              setTimeout(() => {
+                document.getElementById('switch-to-local-error')?.addEventListener('click', () => {
+                  chrome.storage.sync.set({ [STORAGE_PROFILES_LOCATION]: 'local' }, () => {
+                    chrome.storage.local.set({ [STORAGE_PROFILES]: cur }, () => {
+                      renderProfiles(cur);
+                      modal.remove();
+                      showToast(`Switched to local storage. Imported ${imported} profiles.`);
+                    });
+                  });
+                });
+                document.getElementById('cancel-import-error')?.addEventListener('click', () => modal.remove());
+              }, 100);
+            } else {
+              statusEl.innerHTML = `<div class="status-error">Failed to save profiles: ${escapeHtml(err.message || String(err))}</div>`;
+            }
             console.error('[promptiply] Import storage error:', err);
             return;
           }
           renderProfiles(cur);
           modal.remove();
-          showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`);
-          console.log('[promptiply] Import complete:', { imported, skipped });
+          const syncNote = location === 'sync' ? ' (synced across devices)' : ' (local only)';
+          showToast(`Imported ${imported} profile(s)${skipped > 0 ? `, skipped ${skipped} duplicates` : ''}${syncNote}`);
+          console.log('[promptiply] Import complete:', { imported, skipped, location });
         });
       });
 
@@ -1998,7 +2103,7 @@
       const wizardSave = document.getElementById("wizard-save");
       if (wizardSave && !wizardSave.dataset.prAttached) {
         wizardSave.addEventListener("click", () => {
-          chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+          chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
             const cur = normalizeProfilesState(data[STORAGE_PROFILES]);
             if (wizardState.editingId) {
               const idx = cur.list.findIndex((p) => p.id === wizardState.editingId);
@@ -2271,7 +2376,7 @@
     updateProviderDisabled();
   });
 
-  chrome.storage.local.get([STORAGE_PROFILES], (data) => {
+  chrome.storage.sync.get([STORAGE_PROFILES], (data) => {
     const p = normalizeProfilesState(data[STORAGE_PROFILES]);
     renderProfiles(p);
   });
